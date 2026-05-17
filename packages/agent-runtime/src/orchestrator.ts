@@ -459,6 +459,22 @@ export class AgentOrchestrator {
 
   // ── Agent Implementations ────────────────────────────────────
 
+  /**
+   * Call LLM provider if available, falling back to null on failure.
+   */
+  private async withLLM(
+    prompt: string,
+    systemPrompt: string,
+  ): Promise<string | null> {
+    if (!this.config.llmProvider) return null;
+    try {
+      const response = await this.config.llmProvider.complete(prompt, systemPrompt);
+      return response.content;
+    } catch {
+      return null;
+    }
+  }
+
   private async planAgent(projectId: string, task: OrchestrationTask): Promise<Record<string, unknown>> {
     const { data: nodes } = await this.config.graphEngine.listNodes(projectId);
     const edges = await this.config.graphEngine.listEdges(projectId);
@@ -479,6 +495,17 @@ export class AgentOrchestrator {
     const estimatedComplexity =
       nodes.length > 50 ? 'high' : nodes.length > 20 ? 'medium' : 'low';
 
+    // LLM-enhanced architecture analysis when available
+    let aiInsights: string | null = null;
+    if (this.config.llmProvider) {
+      const nodeSummary = nodes.map((n) => `- ${n.type}: ${n.name}`).join('\n');
+      const edgeSummary = edges.map((e) => `- ${e.type}: ${e.source} → ${e.target}`).join('\n');
+      aiInsights = await this.withLLM(
+        `Analyze this software architecture graph and provide 3-5 specific, actionable recommendations for improvement.\n\nNodes (${nodes.length}):\n${nodeSummary}\n\nEdges (${edges.length}):\n${edgeSummary}\n\nValidation errors: ${(topologyValidation.errors?.length ?? 0)}\nWarnings: ${(topologyValidation.warnings?.length ?? 0)}`,
+        'You are a principal software architect. Analyze the architecture graph and provide concise, specific recommendations. Focus on scalability, security, modularity, and maintainability. Keep each recommendation to 1-2 sentences.',
+      );
+    }
+
     return {
       plan: {
         totalTasks: this.tasks.size,
@@ -497,6 +524,7 @@ export class AgentOrchestrator {
           errors: topologyValidation.errors?.slice(0, 10),
           warnings: topologyValidation.warnings?.slice(0, 10),
         },
+        aiInsights: aiInsights ?? undefined,
       },
     };
   }
@@ -641,6 +669,19 @@ export class AgentOrchestrator {
 
     const ruleViolations = await this.config.ruleEngine.getViolations(projectId);
 
+    // LLM-enhanced violation analysis when available
+    let fixSuggestions: string | null = null;
+    if (this.config.llmProvider && ruleViolations.length > 0) {
+      const violationSummary = ruleViolations
+        .slice(0, 10)
+        .map((v) => `[${v.severity}] ${v.message}`)
+        .join('\n');
+      fixSuggestions = await this.withLLM(
+        `These architecture violations were detected:\n${violationSummary}\n\nFor each violation, suggest a concrete fix. Keep suggestions actionable and brief.`,
+        'You are a software architecture validator. Provide concrete, actionable fix recommendations for each violation. One suggestion per violation. Be specific about what to change.',
+      );
+    }
+
     return {
       valid: topologyValidation.valid && ruleViolations.length === 0,
       topology: {
@@ -655,6 +696,7 @@ export class AgentOrchestrator {
       checksPassed: (topologyValidation.valid ? 1 : 0) + (ruleViolations.length === 0 ? 1 : 0),
       errors: (topologyValidation.errors?.length ?? 0) + ruleViolations.length,
       warnings: topologyValidation.warnings?.length ?? 0,
+      fixSuggestions: fixSuggestions ?? undefined,
     };
   }
 
@@ -731,6 +773,16 @@ export class AgentOrchestrator {
     if (nodes.some((n) => ['container', 'pod', 'cluster'].includes(n.type))) sections.push('deployment');
     sections.push('runbook');
 
+    // LLM-generated documentation when available
+    let aiDocs: string | null = null;
+    if (this.config.llmProvider) {
+      const nodeList = nodes.map((n) => `- ${n.type}: ${n.name} — ${n.description ?? 'No description'}`).join('\n');
+      aiDocs = await this.withLLM(
+        `Generate a comprehensive architecture overview document for this software system. Include: system purpose, architecture style, component descriptions, data flow, and key design decisions.\n\nNodes:\n${nodeList}\n\nEdges: ${edges.length}\nArchitecture overview from analysis:\n${JSON.stringify(architectureOverview, null, 2).slice(0, 2000)}`,
+        'You are a technical writer and software architect. Write clear, professional architecture documentation in Markdown. Include sections for overview, components, data flow, and recommendations. Be specific to the provided architecture.',
+      );
+    }
+
     return {
       docsGenerated: true,
       sections,
@@ -740,6 +792,7 @@ export class AgentOrchestrator {
       nodeCount: nodes.length,
       edgeCount: edges.length,
       generatedAt: new Date().toISOString(),
+      aiDocs: aiDocs ?? undefined,
     };
   }
 

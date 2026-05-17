@@ -55,8 +55,8 @@ export default function SimulationsPage() {
   async function loadSimulations() {
     setLoading(true);
     try {
-      const data = await apiClient<{ data: SimulationDef[] }>(`/api/v1/projects/${projectId}/simulations`);
-      setSimulations((data as any)?.data ?? []);
+      const data = await apiClient<SimulationDef[]>(`/api/v1/projects/${projectId}/simulations`);
+      setSimulations(Array.isArray(data) ? data : []);
     } catch (e) {
       setError((e as Error).message);
     } finally {

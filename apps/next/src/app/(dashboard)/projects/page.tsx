@@ -18,8 +18,8 @@ export default function ProjectsPage() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    apiClient<{ data: Project[] }>('/api/v1/projects')
-      .then((r) => setProjects(r.data ?? []))
+    apiClient<Project[]>('/api/v1/projects')
+      .then((r) => setProjects(Array.isArray(r) ? r : []))
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
   }, []);

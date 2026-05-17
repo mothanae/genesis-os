@@ -37,10 +37,10 @@ export default function EvolvePage() {
     setLoading(true);
     try {
       const [insightsData, templatesData] = await Promise.all([
-        apiClient<{ data: ArchitectureInsight[] }>(`/api/v1/projects/${projectId}/insights`).catch(() => ({ data: [] })),
-        apiClient<EvolutionTemplate[]>(`/api/v1/projects/${projectId}/templates`).catch(() => [] as EvolutionTemplate[]),
+        apiClient<ArchitectureInsight[]>(`/api/v1/projects/${projectId}/insights`).catch(() => []),
+        apiClient<EvolutionTemplate[]>(`/api/v1/projects/${projectId}/templates`).catch(() => []),
       ]);
-      setInsights((insightsData as any)?.data ?? []);
+      setInsights(Array.isArray(insightsData) ? insightsData : []);
       setTemplates(Array.isArray(templatesData) ? templatesData : []);
     } catch {
       // Graceful fallback — show defaults

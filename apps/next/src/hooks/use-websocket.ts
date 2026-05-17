@@ -19,7 +19,7 @@ export function useWebSocket({ projectId, onEvent, onGraphMutation, onExecutionP
   const reconnectTimeout = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   const connect = useCallback(() => {
-    const token = typeof window !== 'undefined' ? localStorage.getItem('hesbeh_token') ?? 'dev-token' : 'dev-token';
+    const token = typeof window !== 'undefined' ? localStorage.getItem('genesis_token') ?? '' : '';
     const wsUrl = process.env.NEXT_PUBLIC_WS_URL ?? 'ws://localhost:3001/ws';
     const url = new URL(wsUrl);
     url.searchParams.set('token', token);

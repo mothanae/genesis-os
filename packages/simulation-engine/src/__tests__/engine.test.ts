@@ -53,6 +53,7 @@ function createMockDb() {
 function createMockEventBus() {
   return {
     publish: vi.fn().mockResolvedValue(undefined),
+    publishBatch: vi.fn().mockResolvedValue(undefined),
   };
 }
 
@@ -83,7 +84,7 @@ describe('SimulationEngine', () => {
     it('should complete a simulation with no generators', async () => {
       const db = createMockDb();
       const eventBus = createMockEventBus();
-      const engine = new SimulationEngine({ db, eventBus });
+      const engine = new SimulationEngine({ db, eventBus: eventBus as any });
 
       const config = createMinimalConfig();
       const run = await engine.runSimulation('sim-1', 'proj-1', 'user-1', config);
@@ -94,7 +95,7 @@ describe('SimulationEngine', () => {
     it('should publish started and completed events', async () => {
       const db = createMockDb();
       const eventBus = createMockEventBus();
-      const engine = new SimulationEngine({ db, eventBus });
+      const engine = new SimulationEngine({ db, eventBus: eventBus as any });
 
       const config = createMinimalConfig();
       await engine.runSimulation('sim-1', 'proj-1', 'user-1', config);
@@ -140,7 +141,7 @@ describe('SimulationEngine', () => {
         };
       });
 
-      const engine = new SimulationEngine({ db, eventBus });
+      const engine = new SimulationEngine({ db, eventBus: eventBus as any });
 
       const run = await engine.startRun('sim-1', 'proj-1', 'user-1');
 
@@ -160,7 +161,7 @@ describe('SimulationEngine', () => {
         }),
       });
 
-      const engine = new SimulationEngine({ db, eventBus });
+      const engine = new SimulationEngine({ db, eventBus: eventBus as any });
 
       await expect(
         engine.startRun('nonexistent', 'proj-1', 'user-1'),
@@ -172,7 +173,7 @@ describe('SimulationEngine', () => {
     it('should return runs for a simulation', async () => {
       const db = createMockDb();
       const eventBus = createMockEventBus();
-      const engine = new SimulationEngine({ db, eventBus });
+      const engine = new SimulationEngine({ db, eventBus: eventBus as any });
 
       db.select = vi.fn().mockReturnValue({
         from: vi.fn().mockReturnValue({
@@ -191,7 +192,7 @@ describe('SimulationEngine', () => {
     it('should return a specific run', async () => {
       const db = createMockDb();
       const eventBus = createMockEventBus();
-      const engine = new SimulationEngine({ db, eventBus });
+      const engine = new SimulationEngine({ db, eventBus: eventBus as any });
 
       const runRow = {
         id: 'run-1',
@@ -224,7 +225,7 @@ describe('SimulationEngine', () => {
     it('should return null for non-existent run', async () => {
       const db = createMockDb();
       const eventBus = createMockEventBus();
-      const engine = new SimulationEngine({ db, eventBus });
+      const engine = new SimulationEngine({ db, eventBus: eventBus as any });
 
       db.select = vi.fn().mockReturnValue({
         from: vi.fn().mockReturnValue({
@@ -243,7 +244,7 @@ describe('SimulationEngine', () => {
     it('should return events for a run', async () => {
       const db = createMockDb();
       const eventBus = createMockEventBus();
-      const engine = new SimulationEngine({ db, eventBus });
+      const engine = new SimulationEngine({ db, eventBus: eventBus as any });
 
       const eventRows = [
         { id: 'evt-1', runId: 'run-1', simTime: 1, eventType: 'http.request.completed', source: 'svc-1', payload: {} },

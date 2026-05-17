@@ -24,9 +24,9 @@ export default function ProjectOverviewPage() {
   useEffect(() => {
     async function load() {
       try {
-        const { data: nodes } = await apiClient<any>(`/api/v1/projects/${projectId}/graph/nodes`);
+        const nodes = await apiClient<unknown[]>(`/api/v1/projects/${projectId}/graph/nodes`);
         setOverview({
-          graph: { nodes: nodes?.length ?? 0, edges: 0, valid: true },
+          graph: { nodes: Array.isArray(nodes) ? nodes.length : 0, edges: 0, valid: true },
           agents: { total: 0, active: 0 },
           rules: { total: 0, violations: 0 },
           simulations: { total: 0, lastRunStatus: 'none' },

@@ -1,15 +1,29 @@
-// @ts-nocheck
 'use client';
 
 import { useCanvasStore } from '@/stores/canvas.store';
 import { useCallback } from 'react';
 
-export function NodeInspector({ projectId }: { projectId: string }) {
-  const { nodes, selectedNodeId, selectedEdgeId, selectNode, updateNodeData, removeNode } =
-    useCanvasStore();
+interface PortData {
+  id: string;
+  name: string;
+  type: string;
+}
+
+interface CustomNodeData {
+  label?: string;
+  nodeType?: string;
+  description?: string;
+  state?: string;
+  inputs?: PortData[];
+  outputs?: PortData[];
+  runtime?: Record<string, unknown> | null;
+}
+
+export function NodeInspector({ projectId: _projectId }: { projectId: string }) {
+  const { nodes, selectedNodeId, selectNode, updateNodeData, removeNode } = useCanvasStore();
 
   const selectedNode = nodes.find((n) => n.id === selectedNodeId);
-  const data = selectedNode?.data as Record<string, unknown> | undefined;
+  const data = selectedNode?.data as CustomNodeData | undefined;
 
   const handleFieldChange = useCallback(
     (field: string, value: unknown) => {
@@ -39,7 +53,7 @@ export function NodeInspector({ projectId }: { projectId: string }) {
       {/* Header */}
       <div className="p-3 border-b border-gray-200 bg-gray-50">
         <div className="flex items-center justify-between">
-          <h2 className="text-sm font-bold text-gray-700 truncate">{data?.label as string}</h2>
+          <h2 className="text-sm font-bold text-gray-700 truncate">{data?.label}</h2>
           <button
             onClick={() => selectNode(null)}
             className="text-gray-400 hover:text-gray-600 text-lg leading-none"
@@ -48,7 +62,7 @@ export function NodeInspector({ projectId }: { projectId: string }) {
           </button>
         </div>
         <span className="inline-block mt-1 text-xs px-2 py-0.5 rounded-full bg-gray-200 text-gray-600">
-          {data?.nodeType as string}
+          {data?.nodeType}
         </span>
       </div>
 
@@ -58,7 +72,7 @@ export function NodeInspector({ projectId }: { projectId: string }) {
         <FieldRow label="Name">
           <input
             type="text"
-            value={(data?.label as string) ?? ''}
+            value={data?.label ?? ''}
             onChange={(e) => handleFieldChange('label', e.target.value)}
             className="w-full text-xs border rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-500"
           />
@@ -67,7 +81,7 @@ export function NodeInspector({ projectId }: { projectId: string }) {
         {/* Description */}
         <FieldRow label="Description">
           <textarea
-            value={(data?.description as string) ?? ''}
+            value={data?.description ?? ''}
             onChange={(e) => handleFieldChange('description', e.target.value)}
             rows={2}
             className="w-full text-xs border rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-500 resize-none"
@@ -76,7 +90,7 @@ export function NodeInspector({ projectId }: { projectId: string }) {
 
         <FieldRow label="State">
           <select
-            value={typeof data?.state === 'string' ? data.state : 'draft'}
+            value={data?.state ?? 'draft'}
             onChange={(e) => handleFieldChange('state', e.target.value)}
             className="w-full text-xs border rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-500"
           >
@@ -112,26 +126,24 @@ export function NodeInspector({ projectId }: { projectId: string }) {
         </FieldRow>
 
         {/* Ports */}
-        {data?.inputs && (data.inputs as unknown[]).length > 0 && (
-          <FieldRow label={`Input Ports (${(data.inputs as unknown[]).length})`}>
+        {data?.inputs && data.inputs.length > 0 && (
+          <FieldRow label={`Input Ports (${data.inputs.length})`}>
             <ul className="text-xs space-y-1">
-              {(data.inputs as Array<{ id: string; name: string; type: string }>).map((port) => (
+              {data.inputs.map((port) => (
                 <li key={port.id} className="text-gray-600">
-                  ▸ {port.name}{' '}
-                  <span className="text-gray-400">({port.type})</span>
+                  ▸ {port.name} <span className="text-gray-400">({port.type})</span>
                 </li>
               ))}
             </ul>
           </FieldRow>
         )}
 
-        {data?.outputs && (data.outputs as unknown[]).length > 0 && (
-          <FieldRow label={`Output Ports (${(data.outputs as unknown[]).length})`}>
+        {data?.outputs && data.outputs.length > 0 && (
+          <FieldRow label={`Output Ports (${data.outputs.length})`}>
             <ul className="text-xs space-y-1">
-              {(data.outputs as Array<{ id: string; name: string; type: string }>).map((port) => (
+              {data.outputs.map((port) => (
                 <li key={port.id} className="text-gray-600">
-                  ▸ {port.name}{' '}
-                  <span className="text-gray-400">({port.type})</span>
+                  ▸ {port.name} <span className="text-gray-400">({port.type})</span>
                 </li>
               ))}
             </ul>
@@ -163,7 +175,7 @@ export function NodeInspector({ projectId }: { projectId: string }) {
   );
 }
 
-function FieldRow({ label, children }: { label: string; children: React.ReactNode | unknown }) {
+function FieldRow({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div>
       <label className="block text-[11px] font-semibold text-gray-500 uppercase tracking-wider mb-1">

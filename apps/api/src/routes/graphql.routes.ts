@@ -1,8 +1,9 @@
 import type { FastifyInstance } from 'fastify';
+import { projects, agentDefinitions, simulationRuns } from '@genesis-1/database';
+import { eq, desc } from 'drizzle-orm';
 
-// Lightweight GraphQL endpoint — processes queries against the graph engine
-// without requiring a full GraphQL server library. For production, use
-// @fastify/graphql or GraphQL Yoga with proper schema stitching.
+// Lightweight GraphQL endpoint — processes queries against graph engines
+// without requiring a full GraphQL server library.
 
 interface GraphQLRequest {
   query: string;
@@ -102,17 +103,24 @@ async function executeGraphQL(app: FastifyInstance, query: string, variables: Re
 
   // projects query
   if (trimmed.includes('projects')) {
-    const fields = extractFields(trimmed, 'projects');
-    if (fields.includes('id') || fields.includes('name')) {
-      return { projects: [] }; // Stub: would query app.db
-    }
+    const result = await app.db
+      .select()
+      .from(projects)
+      .orderBy(desc(projects.updatedAt))
+      .limit(20);
+    return { projects: result };
   }
 
   // project(id:) query
   if (trimmed.includes('project(')) {
     const idMatch = trimmed.match(/project\(\s*id:\s*"([^"]+)"/);
     if (idMatch) {
-      return { project: { id: idMatch[1], name: 'Project', slug: 'project' } };
+      const result = await app.db
+        .select()
+        .from(projects)
+        .where(eq(projects.id, idMatch[1]))
+        .limit(1);
+      return { project: result[0] ?? null };
     }
   }
 
@@ -138,7 +146,21 @@ async function executeGraphQL(app: FastifyInstance, query: string, variables: Re
 
   // agents query
   if (trimmed.includes('agents')) {
-    return { agents: [] };
+    const projectId = variables.projectId as string;
+    if (projectId) {
+      const result = await app.db
+        .select()
+        .from(agentDefinitions)
+        .where(eq(agentDefinitions.projectId, projectId))
+        .orderBy(desc(agentDefinitions.updatedAt));
+      return { agents: result };
+    }
+    const result = await app.db
+      .select()
+      .from(agentDefinitions)
+      .orderBy(desc(agentDefinitions.updatedAt))
+      .limit(20);
+    return { agents: result };
   }
 
   // execution(id:) query
@@ -162,6 +184,16 @@ async function executeGraphQL(app: FastifyInstance, query: string, variables: Re
 
   // simulationRuns query
   if (trimmed.includes('simulationRuns')) {
+    const projectId = variables.projectId as string;
+    if (projectId) {
+      const result = await app.db
+        .select()
+        .from(simulationRuns)
+        .where(eq(simulationRuns.projectId, projectId))
+        .orderBy(desc(simulationRuns.createdAt))
+        .limit(20);
+      return { simulationRuns: result };
+    }
     return { simulationRuns: [] };
   }
 
@@ -179,8 +211,4 @@ async function executeGraphQL(app: FastifyInstance, query: string, variables: Re
   return { _errors: [`Unknown query pattern. Supported: projects, project, graphNodes, graphEdges, agents, execution, violations, simulationRuns, topologyValidation`] };
 }
 
-function extractFields(query: string, entityName: string): string[] {
-  const match = query.match(new RegExp(`${entityName}\\s*\\{([^}]+)\\}`, 's'));
-  if (!match || !match[1]) return [];
-  return match[1].split(/\s+/).filter(Boolean);
-}
+

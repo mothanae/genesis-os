@@ -10,7 +10,8 @@ import Redis from 'ioredis';
 import { EventPublisher, EventSubscriber } from '@genesis-1/event-bus';
 import { GraphEngine } from '@genesis-1/graph-engine';
 import { RuleEngine } from '@genesis-1/rule-engine';
-import { AgentRuntime, AgentOrchestrator } from '@genesis-1/agent-runtime';
+import { AgentRuntime, AgentOrchestrator, OllamaProvider } from '@genesis-1/agent-runtime';
+import type { LLMProvider } from '@genesis-1/agent-runtime';
 import { SimulationEngine } from '@genesis-1/simulation-engine';
 import { GenerationEngine } from '@genesis-1/generation-engine';
 import { DeploymentEngine } from '@genesis-1/deployment-engine';
@@ -81,9 +82,11 @@ export async function buildApp() {
   });
   await redis.connect();
 
-  // Event bus
-  const eventPublisher = new EventPublisher(redis);
-  const eventSubscriber = new EventSubscriber(redis);
+  // Event bus — publisher needs its own connection (subscriber puts connection in sub mode)
+  const pubRedis = redis.duplicate();
+  const subRedis = redis.duplicate();
+  const eventPublisher = new EventPublisher(pubRedis);
+  const eventSubscriber = new EventSubscriber(subRedis);
 
   // Core engines
   const graphEngine = new GraphEngine({ db, eventBus: eventPublisher });
@@ -91,8 +94,24 @@ export async function buildApp() {
   const agentRuntime = new AgentRuntime({ db, eventBus: eventPublisher });
   const simulationEngine = new SimulationEngine({ db, eventBus: eventPublisher });
 
+  // LLM provider (Ollama — local LLM server)
+  let llmProvider: LLMProvider | undefined;
+  const ollamaBaseUrl = process.env.OLLAMA_BASE_URL ?? 'http://localhost:11434';
+  const ollamaModel = process.env.OLLAMA_MODEL ?? 'llama3.2';
+  try {
+    llmProvider = new OllamaProvider({ baseUrl: ollamaBaseUrl, model: ollamaModel });
+  } catch {
+    // Ollama is optional — orchestrator falls back to deterministic analysis
+  }
+
   // Orchestrator & higher-order engines
-  const orchestrator = new AgentOrchestrator({ db, eventBus: eventPublisher, graphEngine, ruleEngine });
+  const orchestrator = new AgentOrchestrator({
+    db,
+    eventBus: eventPublisher,
+    graphEngine,
+    ruleEngine,
+    llmProvider,
+  });
   const generationEngine = new GenerationEngine(graphEngine, eventPublisher);
   const deploymentEngine = new DeploymentEngine(graphEngine, eventPublisher);
   const evolutionEngine = new EvolutionEngine(graphEngine, eventPublisher);
