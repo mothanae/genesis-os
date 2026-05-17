@@ -1,4 +1,4 @@
-import { pgSchema, uuid, text, integer, jsonb, timestamp, doublePrecision } from 'drizzle-orm/pg-core';
+import { pgSchema, uuid, text, integer, boolean, jsonb, timestamp, doublePrecision } from 'drizzle-orm/pg-core';
 
 export const evolutionSchema = pgSchema('evolution');
 

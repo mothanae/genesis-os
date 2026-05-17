@@ -1,8 +1,7 @@
 'use client';
 
 import { useState, useCallback } from 'react';
-import Editor, { type OnMount } from '@monaco-editor/react';
-import type { editor } from 'monaco-editor';
+import Editor, { DiffEditor, type OnMount } from '@monaco-editor/react';
 
 interface MonacoCodeEditorProps {
   code: string;
@@ -21,7 +20,7 @@ export function MonacoCodeEditor({
   height = '400px',
   theme = 'vs-dark',
 }: MonacoCodeEditorProps) {
-  const [editorRef, setEditorRef] = useState<editor.IStandaloneCodeEditor | null>(null);
+  const [editorRef, setEditorRef] = useState<any>(null);
 
   const handleMount: OnMount = useCallback((editor) => {
     setEditorRef(editor);
@@ -123,7 +122,7 @@ export function MonacoDiffEditor({
         <span className="flex-1">Original</span>
         <span className="flex-1 text-right">Modified</span>
       </div>
-      <Editor
+      <DiffEditor
         height={height}
         language={language}
         original={original}
@@ -131,7 +130,6 @@ export function MonacoDiffEditor({
         theme="vs-dark"
         options={{
           readOnly: true,
-          renderSideBySide: true,
           automaticLayout: true,
         }}
       />

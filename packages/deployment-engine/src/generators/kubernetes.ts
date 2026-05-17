@@ -95,8 +95,8 @@ spec:
               cpu: ${cpu}
               memory: ${memory}
             limits:
-              cpu: '${parseFloat(cpu) * 2}${cpu.includes('m') ? 'm' : ''}'
-              memory: '${parseInt(memory) * 2}Mi'
+              cpu: '${parseFloat(cpu as string) * 2}${(cpu as string).includes('m') ? 'm' : ''}'
+              memory: '${parseInt(memory as string) * 2}Mi'
           livenessProbe:
             httpGet:
               path: /health

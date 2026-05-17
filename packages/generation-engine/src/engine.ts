@@ -413,6 +413,7 @@ describe('${this.toPascal(node.name)}Service', () => {
   }
 
   // ── Project Files ─────────────────────────────────────────
+  private generateProjectFiles(
     nodes: Array<{ type: string; name: string }>,
     config: GenerationConfig,
   ): GeneratedModule[] {

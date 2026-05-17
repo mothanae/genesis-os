@@ -1,4 +1,4 @@
-import { pgSchema, uuid, text, integer, float, jsonb, timestamp } from 'drizzle-orm/pg-core';
+import { pgSchema, uuid, text, integer, real, jsonb, timestamp } from 'drizzle-orm/pg-core';
 
 export const simulationSchema = pgSchema('simulation');
 
@@ -25,7 +25,7 @@ export const simulationRuns = simulationSchema.table('simulation_runs', {
   triggeredBy: uuid('triggered_by').notNull(),
   status: text('status').notNull().default('pending'),
   totalSteps: integer('total_steps').notNull().default(0),
-  clockEnd: float('clock_end').notNull().default(0),
+  clockEnd: real('clock_end').notNull().default(0),
   metrics: jsonb('metrics'),
   startedAt: timestamp('started_at', { withTimezone: true }),
   completedAt: timestamp('completed_at', { withTimezone: true }),
@@ -38,7 +38,7 @@ export const simulationEvents = simulationSchema.table('simulation_events', {
   runId: uuid('run_id')
     .notNull()
     .references(() => simulationRuns.id, { onDelete: 'cascade' }),
-  simTime: float('sim_time').notNull(),
+  simTime: real('sim_time').notNull(),
   eventType: text('event_type').notNull(),
   source: text('source'),
   payload: jsonb('payload').notNull().default({}),

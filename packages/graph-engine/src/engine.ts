@@ -504,7 +504,7 @@ export class GraphEngine {
         ORDER BY total_weight ASC LIMIT 1`,
     );
 
-    const row = result.rows[0] as { path: string[]; edge_ids: string[] } | undefined;
+    const row = (result as any).rows[0] as { path: string[]; edge_ids: string[] } | undefined;
     if (!row) return null;
 
     const edgeList: GraphEdge[] = [];
@@ -539,7 +539,7 @@ export class GraphEngine {
         FROM ancestor_search ORDER BY node_id, depth ASC`,
     );
 
-    for (const row of result.rows) {
+    for (const row of (result as any).rows as Array<{ node_id: string; node_name: string; depth: number; edge_type: string }>) {
       const ancestorNode = await this.getNode(row.node_id);
       chain.push({
         nodeId: row.node_id,
@@ -575,7 +575,7 @@ export class GraphEngine {
         FROM descendant_search ORDER BY node_id, depth ASC`,
     );
 
-    for (const row of result.rows) {
+    for (const row of (result as any).rows as Array<{ node_id: string; node_name: string; depth: number; edge_type: string }>) {
       const descNode = await this.getNode(row.node_id);
       chain.push({
         nodeId: row.node_id,
@@ -618,7 +618,7 @@ export class GraphEngine {
         SELECT DISTINCT path, node_ids, edge_ids FROM cycle_search WHERE has_cycle`,
     );
 
-    const cycles: CycleResult[] = (result.rows as Array<{
+    const cycles: CycleResult[] = ((result as any).rows as Array<{
       path: string[];
       node_ids: string[];
       edge_ids: string[];
@@ -662,7 +662,7 @@ export class GraphEngine {
         FROM downstream`,
     );
 
-    const row = result.rows[0] as { affected_ids: string[]; depth: number; cascading_ids: string[] } | undefined;
+    const row = (result as any).rows[0] as { affected_ids: string[]; depth: number; cascading_ids: string[] } | undefined;
 
     // Collect edges involved
     const affectedNodes = row?.affected_ids ?? [];

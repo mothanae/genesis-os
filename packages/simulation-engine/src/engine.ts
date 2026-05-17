@@ -310,10 +310,10 @@ export class SimulationEngine {
   private initState(initial: Record<string, unknown>): SimState {
     return {
       clock: 0,
-      services: new Map(Object.entries((initial.services as Record<string, unknown>) ?? {})),
-      databases: new Map(Object.entries((initial.databases as Record<string, unknown>) ?? {})),
-      queues: new Map(Object.entries((initial.queues as Record<string, unknown>) ?? {})),
-      caches: new Map(Object.entries((initial.caches as Record<string, unknown>) ?? {})),
+      services: new Map(Object.entries((initial.services as Record<string, unknown>) ?? {})) as Map<string, ServiceState>,
+      databases: new Map(Object.entries((initial.databases as Record<string, unknown>) ?? {})) as Map<string, DatabaseState>,
+      queues: new Map(Object.entries((initial.queues as Record<string, unknown>) ?? {})) as Map<string, QueueState>,
+      caches: new Map(Object.entries((initial.caches as Record<string, unknown>) ?? {})) as Map<string, CacheState>,
       network: { totalRequests: 0, activeConnections: 0, bandwidthMbps: 1000, packetLossPercent: 0, latencyMs: 1 },
       events: [],
       metrics: { requestCounts: [], latencyBuckets: new Map(), errorRateTimeline: [], throughputTimeline: [], availabilityTimeline: [], cpuTimeline: [], memoryTimeline: [] },

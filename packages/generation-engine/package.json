@@ -20,12 +20,13 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "@genesis-1/shared": "workspace:*",
     "@genesis-1/database": "workspace:*",
     "@genesis-1/event-bus": "workspace:*",
-    "@genesis-1/graph-engine": "workspace:*"
+    "@genesis-1/graph-engine": "workspace:*",
+    "@genesis-1/shared": "workspace:*"
   },
   "devDependencies": {
+    "drizzle-orm": "^0.33.0",
     "tsup": "^8.3.5",
     "typescript": "^5.7.3",
     "vitest": "^2.1.8"

@@ -35,8 +35,6 @@ export class SocketIOAdapter {
    * Emit an event to a Socket.IO room. Falls back to Redis pub/sub if no io instance.
    */
   async emit(event: string, data: unknown, room?: string): Promise<void> {
-    const socketEvent: SocketIOEvent = { event, data, room, namespace: this.namespace };
-
     if (this.io) {
       const io = this.io as {
         of: (ns: string) => { to: (room: string) => { emit: (event: string, data: unknown) => void } };

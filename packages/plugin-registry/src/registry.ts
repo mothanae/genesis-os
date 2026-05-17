@@ -1,4 +1,4 @@
-import type { GraphNode, GraphEdge, RuleDefinition } from '@genesis-1/shared';
+import type { GraphNode, RuleDefinition } from '@genesis-1/shared';
 
 // ── Plugin Types ──────────────────────────────────────────────
 

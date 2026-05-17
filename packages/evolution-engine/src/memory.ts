@@ -66,7 +66,7 @@ export class ArchitectureMemory {
 
   private typeSimilarity(record: MemoryRecord, types: string[]): number {
     const recordTypes = new Set(record.insights.flatMap((i) => i.type));
-    const overlap = types.filter((t) => recordTypes.has(t)).length;
+    const overlap = types.filter((t) => recordTypes.has(t as ArchitectureInsight['type'])).length;
     return overlap / Math.max(types.length, 1);
   }
 

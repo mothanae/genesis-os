@@ -16,7 +16,7 @@ interface UseWebSocketOptions {
 
 export function useWebSocket({ projectId, onEvent, onGraphMutation, onExecutionProgress }: UseWebSocketOptions) {
   const wsRef = useRef<WebSocket | null>(null);
-  const reconnectTimeout = useRef<ReturnType<typeof setTimeout>>();
+  const reconnectTimeout = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   const connect = useCallback(() => {
     const token = typeof window !== 'undefined' ? localStorage.getItem('hesbeh_token') ?? 'dev-token' : 'dev-token';
