@@ -1,0 +1,30 @@
+FROM node:20-alpine AS base
+RUN apk add --no-cache libc6-compat && \
+    corepack enable && \
+    corepack prepare pnpm@9.15.4 --activate
+WORKDIR /app
+
+FROM base AS deps
+COPY pnpm-workspace.yaml package.json pnpm-lock.yaml turbo.json ./
+COPY apps/api/package.json ./apps/api/package.json
+COPY packages/config/package.json ./packages/config/package.json
+COPY packages/shared/package.json ./packages/shared/package.json
+COPY packages/database/package.json ./packages/database/package.json
+COPY packages/event-bus/package.json ./packages/event-bus/package.json
+COPY packages/graph-engine/package.json ./packages/graph-engine/package.json
+COPY packages/rule-engine/package.json ./packages/rule-engine/package.json
+COPY packages/agent-runtime/package.json ./packages/agent-runtime/package.json
+COPY packages/simulation-engine/package.json ./packages/simulation-engine/package.json
+RUN pnpm install --frozen-lockfile --prod
+
+FROM deps AS builder
+COPY . .
+RUN pnpm turbo build --filter=@genesis-1/api...
+
+FROM base AS runner
+COPY --from=builder /app/apps/api/dist ./apps/api/dist
+COPY --from=builder /app/packages ./packages
+COPY --from=builder /app/node_modules ./node_modules
+EXPOSE 3001
+USER node
+CMD ["node", "apps/api/dist/index.js"]

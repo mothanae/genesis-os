@@ -1,0 +1,16 @@
+FROM node:20-alpine
+
+RUN apk add --no-cache libc6-compat && \
+    corepack enable && \
+    corepack prepare pnpm@9.15.4 --activate
+
+WORKDIR /app
+
+COPY pnpm-workspace.yaml package.json pnpm-lock.yaml turbo.json ./
+COPY apps/*/package.json ./apps/
+COPY packages/*/package.json ./packages/
+
+RUN pnpm install --frozen-lockfile
+
+# Source is mounted as a volume in dev
+CMD ["pnpm", "dev"]

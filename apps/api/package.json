@@ -1,0 +1,41 @@
+{
+  "name": "@genesis-1/api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsup",
+    "start": "node dist/index.js",
+    "lint": "tsc --noEmit",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@genesis-1/shared": "workspace:*",
+    "@genesis-1/config": "workspace:*",
+    "@genesis-1/database": "workspace:*",
+    "@genesis-1/event-bus": "workspace:*",
+    "@genesis-1/graph-engine": "workspace:*",
+    "@genesis-1/rule-engine": "workspace:*",
+    "@genesis-1/agent-runtime": "workspace:*",
+    "@genesis-1/simulation-engine": "workspace:*",
+    "fastify": "^5.2.0",
+    "@fastify/cors": "^10.0.2",
+    "@fastify/websocket": "^11.0.2",
+    "@fastify/swagger": "^9.4.2",
+    "@fastify/swagger-ui": "^5.2.0",
+    "@fastify/rate-limit": "^10.2.1",
+    "fastify-type-provider-zod": "^4.0.2",
+    "ioredis": "^5.4.1",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "tsup": "^8.3.5",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3",
+    "vitest": "^2.1.8"
+  }
+}

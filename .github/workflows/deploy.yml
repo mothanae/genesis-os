@@ -1,0 +1,54 @@
+name: Deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Deployment target'
+        required: true
+        type: choice
+        options:
+          - staging
+          - production
+
+concurrency:
+  group: deploy-${{ github.event.inputs.environment }}
+  cancel-in-progress: false
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: ${{ github.event.inputs.environment }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'pnpm'
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+
+      - name: Build and push API image
+        run: |
+          docker build -f docker/Dockerfile.api -t genesis-1-api:${{ github.sha }} .
+          # Push to registry (configure your registry here)
+          # docker tag genesis-1-api:${{ github.sha }} your-registry/genesis-1-api:${{ github.sha }}
+          # docker push your-registry/genesis-1-api:${{ github.sha }}
+
+      - name: Build and push Next image
+        run: |
+          docker build -f docker/Dockerfile.next -t genesis-1-next:${{ github.sha }} .
+          # docker tag genesis-1-next:${{ github.sha }} your-registry/genesis-1-next:${{ github.sha }}
+          # docker push your-registry/genesis-1-next:${{ github.sha }}
+
+      - name: Notify deployment
+        run: |
+          echo "Deployment to ${{ github.event.inputs.environment }} triggered with SHA ${{ github.sha }}"

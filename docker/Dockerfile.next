@@ -1,0 +1,24 @@
+FROM node:20-alpine AS base
+RUN apk add --no-cache libc6-compat && \
+    corepack enable && \
+    corepack prepare pnpm@9.15.4 --activate
+WORKDIR /app
+
+FROM base AS deps
+COPY pnpm-workspace.yaml package.json pnpm-lock.yaml turbo.json ./
+COPY apps/next/package.json ./apps/next/package.json
+COPY packages/shared/package.json ./packages/shared/package.json
+RUN pnpm install --frozen-lockfile --prod
+
+FROM deps AS builder
+COPY . .
+RUN pnpm turbo build --filter=@genesis-1/next...
+
+FROM base AS runner
+COPY --from=builder /app/apps/next/.next ./apps/next/.next
+COPY --from=builder /app/apps/next/next.config.ts ./apps/next/
+COPY --from=builder /app/apps/next/package.json ./apps/next/
+COPY --from=builder /app/node_modules ./node_modules
+EXPOSE 3000
+USER node
+CMD ["node", "apps/next/node_modules/.bin/next", "start"]
