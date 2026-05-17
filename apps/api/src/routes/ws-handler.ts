@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import type { WebSocket } from 'ws';
+import { SemanticInference } from '@genesis-1/graph-engine';
 
 interface WSConnection {
   socket: WebSocket;
@@ -153,6 +154,27 @@ function handleClientMessage(
           payload: msg.payload as Record<string, unknown>,
           timestamp: new Date().toISOString(),
         }, connectionId);
+      }
+      break;
+    }
+    case 'infer_connection': {
+      // Run semantic inference on a new edge being created and return suggestions
+      const payload = msg.payload as { sourceType?: string; targetType?: string; edgeType?: string };
+      if (payload.sourceType && payload.targetType) {
+        const inference = new SemanticInference();
+        const results = inference.inferForConnection(
+          payload.sourceType,
+          payload.targetType,
+          payload.edgeType ?? 'depends_on',
+        );
+        conn.socket.send(JSON.stringify({
+          type: 'inference_result',
+          sourceType: payload.sourceType,
+          targetType: payload.targetType,
+          edgeType: payload.edgeType,
+          suggestions: results,
+          timestamp: new Date().toISOString(),
+        }));
       }
       break;
     }
