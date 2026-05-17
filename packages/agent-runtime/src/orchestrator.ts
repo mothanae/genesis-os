@@ -2,6 +2,7 @@ import type { DatabaseClient } from '@genesis-1/database';
 import type { EventPublisher } from '@genesis-1/event-bus';
 import type { GraphEngine } from '@genesis-1/graph-engine';
 import type { RuleEngine } from '@genesis-1/rule-engine';
+import type { LLMProvider } from './providers/ollama';
 import { EventType } from '@genesis-1/shared';
 
 // ── Task Types ─────────────────────────────────────────────────
@@ -64,6 +65,7 @@ export interface OrchestratorConfig {
   eventBus: EventPublisher;
   graphEngine: GraphEngine;
   ruleEngine: RuleEngine;
+  llmProvider?: LLMProvider;
   maxConcurrentTasks?: number;
   maxRetries?: number;
 }
@@ -421,83 +423,389 @@ export class AgentOrchestrator {
   ): Promise<Record<string, unknown>> {
     switch (task.type) {
       case 'plan':
-        return {
-          plan: {
-            totalTasks: this.tasks.size,
-            phases: ['generate_database', 'generate_backend', 'generate_api', 'generate_frontend', 'generate_infra', 'validate', 'document'],
-            estimatedComplexity: 'medium',
-          },
-        };
+        return this.planAgent(projectId, task);
 
       case 'generate_database':
-        return {
-          schemasGenerated: (task.input.databases as unknown[])?.length ?? 0,
-          migrationsGenerated: true,
-          ormUsed: 'drizzle',
-        };
+        return this.databaseAgent(projectId, task);
 
       case 'generate_backend':
-        return {
-          servicesGenerated: (task.input.services as unknown[])?.length ?? 0,
-          routesGenerated: true,
-          middlewareGenerated: true,
-        };
+        return this.backendAgent(projectId, task);
 
       case 'generate_api':
-        return {
-          endpointsGenerated: (task.input.apiNodes as unknown[])?.length ?? 0,
-          openApiGenerated: true,
-          specVersion: '3.1.0',
-        };
+        return this.apiAgent(projectId, task);
 
       case 'generate_frontend':
-        return {
-          componentsGenerated: (task.input.frontendNodes as unknown[])?.length ?? 0,
-          pagesGenerated: true,
-          routingConfigured: true,
-        };
+        return this.frontendAgent(projectId, task);
 
       case 'generate_infra':
-        return {
-          dockerfilesGenerated: true,
-          kubernetesManifestsGenerated: true,
-          terraformModulesGenerated: true,
-          cicdPipelineGenerated: true,
-        };
+        return this.infraAgent(projectId, task);
 
       case 'validate':
-        return {
-          valid: true,
-          checksPassed: 12,
-          warnings: 2,
-          errors: 0,
-        };
+        return this.validateAgent(projectId, task);
 
       case 'simulate':
-        return {
-          simulationCompleted: true,
-          avgLatency: '45ms',
-          throughput: '1200 req/s',
-          availability: '99.95%',
-        };
+        return this.simulateAgent(projectId, task);
 
       case 'deploy':
-        return {
-          deployed: true,
-          target: 'kubernetes',
-          healthCheckPassed: true,
-        };
+        return this.deployAgent(projectId, task);
 
       case 'document':
-        return {
-          docsGenerated: true,
-          sections: ['architecture', 'api', 'deployment', 'runbook'],
-          format: 'markdown',
-        };
+        return this.documentAgent(projectId, task);
 
       default:
-        return { done: true };
+        return { done: true, message: `No handler for task type: ${task.type}` };
     }
+  }
+
+  // ── Agent Implementations ────────────────────────────────────
+
+  private async planAgent(projectId: string, task: OrchestrationTask): Promise<Record<string, unknown>> {
+    const { data: nodes } = await this.config.graphEngine.listNodes(projectId);
+    const edges = await this.config.graphEngine.listEdges(projectId);
+    const topologyValidation = await this.config.graphEngine.validateTopology(projectId);
+
+    const categories = this.categorizeNodes(nodes);
+    const phases: string[] = [];
+
+    if (categories.databases.length > 0) phases.push('generate_database');
+    if (categories.backendServices.length > 0) phases.push('generate_backend');
+    if (categories.apiNodes.length > 0) phases.push('generate_api');
+    if (categories.frontendNodes.length > 0) phases.push('generate_frontend');
+    if (categories.infraNodes.length > 0 || categories.backendServices.length > 0) phases.push('generate_infra');
+    phases.push('validate');
+    if (categories.hasDocumentableNodes(nodes)) phases.push('document');
+
+    const totalNodeTypes = new Set(nodes.map((n) => n.type)).size;
+    const estimatedComplexity =
+      nodes.length > 50 ? 'high' : nodes.length > 20 ? 'medium' : 'low';
+
+    return {
+      plan: {
+        totalTasks: this.tasks.size,
+        phases,
+        estimatedComplexity,
+        topologySummary: {
+          nodeCount: nodes.length,
+          edgeCount: edges.length,
+          nodeTypeCount: totalNodeTypes,
+          categories: Object.fromEntries(
+            Object.entries(categories).map(([k, v]) => [k, Array.isArray(v) ? v.length : v]),
+          ),
+        },
+        topologyValidation: {
+          valid: topologyValidation.valid,
+          errors: topologyValidation.errors?.slice(0, 10),
+          warnings: topologyValidation.warnings?.slice(0, 10),
+        },
+      },
+    };
+  }
+
+  private async databaseAgent(projectId: string, task: OrchestrationTask): Promise<Record<string, unknown>> {
+    const { data: nodes } = await this.config.graphEngine.listNodes(projectId);
+    const dbNodes = nodes.filter((n) =>
+      ['database', 'cache', 'queue', 'event_store', 'object_store'].includes(n.type),
+    );
+
+    const schemas = dbNodes.map((n) => ({
+      tableName: n.name.toLowerCase().replace(/\s+/g, '_'),
+      nodeType: n.type,
+      columns: this.inferColumnsFromNode(n),
+    }));
+
+    return {
+      schemasGenerated: schemas.length,
+      schemas,
+      migrationsGenerated: schemas.length > 0,
+      ormUsed: 'drizzle',
+      targetDialect: 'postgresql',
+    };
+  }
+
+  private async backendAgent(projectId: string, task: OrchestrationTask): Promise<Record<string, unknown>> {
+    const { data: nodes } = await this.config.graphEngine.listNodes(projectId);
+    const edges = await this.config.graphEngine.listEdges(projectId);
+
+    const services = nodes.filter((n) =>
+      ['service', 'function'].includes(n.type),
+    );
+
+    const serviceSpecs = services.map((s) => {
+      const relatedEdges = edges.filter(
+        (e) => e.source === s.id || e.target === s.id,
+      );
+      return {
+        name: s.name,
+        type: s.type,
+        dependencies: relatedEdges.map((e) =>
+          e.source === s.id ? e.target : e.source,
+        ),
+        runtimeConfig: s.runtime,
+      };
+    });
+
+    return {
+      servicesGenerated: serviceSpecs.length,
+      services: serviceSpecs,
+      routesGenerated: services.length > 0,
+      middlewareGenerated: services.length > 0,
+    };
+  }
+
+  private async apiAgent(projectId: string, task: OrchestrationTask): Promise<Record<string, unknown>> {
+    const { data: nodes } = await this.config.graphEngine.listNodes(projectId);
+    const edges = await this.config.graphEngine.listEdges(projectId);
+
+    const apiNodes = nodes.filter((n) =>
+      ['api_gateway', 'rest_endpoint', 'graphql_schema', 'grpc_service', 'webhook'].includes(n.type),
+    );
+
+    const endpoints = apiNodes.map((n) => {
+      const outEdges = edges.filter((e) => e.source === n.id);
+      return {
+        path: `/${n.name.toLowerCase().replace(/\s+/g, '-')}`,
+        method: n.type === 'graphql_schema' ? 'POST' : n.type === 'webhook' ? 'POST' : 'GET',
+        type: n.type,
+        description: n.description ?? '',
+        connectedServices: outEdges.map((e) => e.target),
+      };
+    });
+
+    return {
+      endpointsGenerated: endpoints.length,
+      endpoints,
+      openApiGenerated: endpoints.length > 0,
+      specVersion: '3.1.0',
+    };
+  }
+
+  private async frontendAgent(projectId: string, task: OrchestrationTask): Promise<Record<string, unknown>> {
+    const { data: nodes } = await this.config.graphEngine.listNodes(projectId);
+    const edges = await this.config.graphEngine.listEdges(projectId);
+
+    const frontendNodes = nodes.filter((n) =>
+      ['page', 'component', 'form', 'table', 'chart'].includes(n.type),
+    );
+
+    const components = frontendNodes.map((n) => {
+      const dataDeps = edges.filter((e) => e.source === n.id);
+      return {
+        name: n.name,
+        type: n.type,
+        route: n.type === 'page' ? `/${n.name.toLowerCase().replace(/\s+/g, '-')}` : undefined,
+        dataDependencies: dataDeps.map((e) => e.target),
+      };
+    });
+
+    // Build routing tree from page nodes
+    const pages = components.filter((c) => c.type === 'page');
+    const routeTree = pages.map((p) => ({
+      path: p.route ?? '/',
+      component: p.name,
+    }));
+
+    return {
+      componentsGenerated: components.length,
+      components,
+      pagesGenerated: pages.length,
+      routeTree,
+      routingConfigured: pages.length > 0,
+    };
+  }
+
+  private async infraAgent(projectId: string, task: OrchestrationTask): Promise<Record<string, unknown>> {
+    const { data: nodes } = await this.config.graphEngine.listNodes(projectId);
+
+    const infraNodes = nodes.filter((n) =>
+      ['environment', 'region', 'cluster', 'namespace', 'load_balancer', 'dns', 'container', 'pod'].includes(n.type),
+    );
+
+    const hasServices = nodes.some((n) => ['service', 'function'].includes(n.type));
+    const hasDb = nodes.some((n) => n.type === 'database');
+
+    return {
+      infrastructure: {
+        environments: infraNodes.filter((n) => n.type === 'environment').map((n) => n.name),
+        regions: infraNodes.filter((n) => n.type === 'region').map((n) => n.name),
+        clusters: infraNodes.filter((n) => n.type === 'cluster').map((n) => n.name),
+      },
+      dockerfilesGenerated: hasServices,
+      kubernetesManifestsGenerated: hasServices,
+      terraformModulesGenerated: hasServices || hasDb,
+      cicdPipelineGenerated: hasServices,
+    };
+  }
+
+  private async validateAgent(projectId: string, _task: OrchestrationTask): Promise<Record<string, unknown>> {
+    const topologyValidation = await this.config.graphEngine.validateTopology(projectId);
+
+    const ruleViolations = await this.config.ruleEngine.getViolations(projectId);
+
+    return {
+      valid: topologyValidation.valid && ruleViolations.length === 0,
+      topology: {
+        valid: topologyValidation.valid,
+        errors: topologyValidation.errors ?? [],
+        warnings: topologyValidation.warnings ?? [],
+      },
+      rules: {
+        violations: ruleViolations.length,
+        details: ruleViolations.slice(0, 20),
+      },
+      checksPassed: (topologyValidation.valid ? 1 : 0) + (ruleViolations.length === 0 ? 1 : 0),
+      errors: (topologyValidation.errors?.length ?? 0) + ruleViolations.length,
+      warnings: topologyValidation.warnings?.length ?? 0,
+    };
+  }
+
+  private async simulateAgent(projectId: string, task: OrchestrationTask): Promise<Record<string, unknown>> {
+    const { data: nodes } = await this.config.graphEngine.listNodes(projectId);
+
+    const serviceCount = nodes.filter((n) => ['service', 'function', 'container'].includes(n.type)).length;
+    const dbCount = nodes.filter((n) => n.type === 'database').length;
+
+    return {
+      simulationConfig: {
+        projectId,
+        serviceCount,
+        databaseCount: dbCount,
+        suggestedDuration: 60000,
+        suggestedTickInterval: 100,
+        generators: [
+          { type: 'http_traffic', enabled: serviceCount > 0 },
+          { type: 'db_queries', enabled: dbCount > 0 },
+          { type: 'events', enabled: true },
+          { type: 'auth', enabled: true },
+          { type: 'background_jobs', enabled: serviceCount > 0 },
+          { type: 'websocket', enabled: serviceCount > 0 },
+        ],
+        loadProfile: {
+          type: 'ramp',
+          baseRps: 10,
+          peakRps: serviceCount * 50,
+          rampDurationTicks: 100,
+        },
+      },
+      estimatedMetrics: {
+        avgLatency: `${20 + serviceCount * 5}ms`,
+        throughput: `${serviceCount * 100} req/s`,
+        availability: '99.95%',
+      },
+    };
+  }
+
+  private async deployAgent(projectId: string, _task: OrchestrationTask): Promise<Record<string, unknown>> {
+    const { data: nodes } = await this.config.graphEngine.listNodes(projectId);
+
+    const hasServices = nodes.some((n) => ['service', 'function', 'container'].includes(n.type));
+    const hasK8s = nodes.some((n) => ['cluster', 'namespace'].includes(n.type));
+    const regions = nodes.filter((n) => n.type === 'region').map((n) => n.name);
+
+    return {
+      deploymentPlan: {
+        target: hasK8s ? 'kubernetes' : 'docker-compose',
+        regions: regions.length > 0 ? regions : ['us-east-1'],
+        services: nodes.filter((n) => ['service', 'function'].includes(n.type)).map((n) => n.name),
+        strategy: hasServices ? 'rolling' : 'none',
+        healthCheckEnabled: hasServices,
+      },
+      rollbackConfigured: true,
+    };
+  }
+
+  private async documentAgent(projectId: string, _task: OrchestrationTask): Promise<Record<string, unknown>> {
+    const { data: nodes } = await this.config.graphEngine.listNodes(projectId);
+    const edges = await this.config.graphEngine.listEdges(projectId);
+
+    const architectureOverview = this.generateArchitectureOverview(nodes, edges);
+    const apiEndpoints = nodes
+      .filter((n) => ['rest_endpoint', 'graphql_schema', 'grpc_service', 'webhook'].includes(n.type))
+      .map((n) => ({
+        name: n.name,
+        type: n.type,
+        description: n.description ?? '',
+      }));
+
+    const sections = ['architecture'];
+    if (apiEndpoints.length > 0) sections.push('api');
+    if (nodes.some((n) => ['container', 'pod', 'cluster'].includes(n.type))) sections.push('deployment');
+    sections.push('runbook');
+
+    return {
+      docsGenerated: true,
+      sections,
+      format: 'markdown',
+      architectureOverview,
+      apiEndpoints,
+      nodeCount: nodes.length,
+      edgeCount: edges.length,
+      generatedAt: new Date().toISOString(),
+    };
+  }
+
+  // ── Agent Helper Methods ─────────────────────────────────────
+
+  private inferColumnsFromNode(node: { name: string; type: string; properties?: Record<string, unknown> }): Array<{
+    name: string;
+    type: string;
+    nullable: boolean;
+  }> {
+    const baseColumns = [
+      { name: 'id', type: 'uuid', nullable: false },
+      { name: 'created_at', type: 'timestamp', nullable: false },
+      { name: 'updated_at', type: 'timestamp', nullable: false },
+    ];
+
+    const domainColumns: Array<{ name: string; type: string; nullable: boolean }> = [];
+
+    switch (node.type) {
+      case 'cache':
+        domainColumns.push(
+          { name: 'key', type: 'text', nullable: false },
+          { name: 'value', type: 'jsonb', nullable: false },
+          { name: 'expires_at', type: 'timestamp', nullable: true },
+        );
+        break;
+      case 'queue':
+      case 'event_store':
+        domainColumns.push(
+          { name: 'event_type', type: 'text', nullable: false },
+          { name: 'payload', type: 'jsonb', nullable: false },
+          { name: 'processed_at', type: 'timestamp', nullable: true },
+        );
+        break;
+      case 'object_store':
+        domainColumns.push(
+          { name: 'bucket', type: 'text', nullable: false },
+          { name: 'object_key', type: 'text', nullable: false },
+          { name: 'size_bytes', type: 'integer', nullable: false },
+          { name: 'content_type', type: 'text', nullable: true },
+        );
+        break;
+      default:
+        domainColumns.push(
+          { name: 'name', type: 'text', nullable: false },
+          { name: 'data', type: 'jsonb', nullable: true },
+        );
+    }
+
+    return [...baseColumns, ...domainColumns];
+  }
+
+  private generateArchitectureOverview(
+    nodes: Array<{ id: string; name: string; type: string; description?: string | null }>,
+    edges: Array<{ source: string; target: string; type: string }>,
+  ): string {
+    const nodeTypeCounts = new Map<string, number>();
+    for (const n of nodes) {
+      nodeTypeCounts.set(n.type, (nodeTypeCounts.get(n.type) ?? 0) + 1);
+    }
+
+    const summary = Array.from(nodeTypeCounts.entries())
+      .map(([type, count]) => `${count} ${type}${count > 1 ? 's' : ''}`)
+      .join(', ');
+
+    return `Architecture with ${nodes.length} nodes (${summary}) and ${edges.length} edges across ${new Set(edges.map((e) => e.type)).size} edge types.`;
   }
 
   // ── Helpers ─────────────────────────────────────────────────

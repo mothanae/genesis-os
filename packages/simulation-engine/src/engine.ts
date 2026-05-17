@@ -2,8 +2,8 @@ import type { DatabaseClient } from '@genesis-1/database';
 import type { EventPublisher } from '@genesis-1/event-bus';
 import type { SimulationRun, SimulationMetrics } from '@genesis-1/shared';
 import { EventType } from '@genesis-1/shared';
-import { simulationRuns, simulationEvents } from '@genesis-1/database';
-import { eq } from 'drizzle-orm';
+import { simulationRuns, simulationEvents, simulationDefinitions } from '@genesis-1/database';
+import { eq, and, asc } from 'drizzle-orm';
 
 export interface SimulationEngineConfig {
   db: DatabaseClient;
@@ -324,6 +324,75 @@ export class SimulationEngine {
     if (sorted.length === 0) return 0;
     const idx = Math.ceil((p / 100) * sorted.length) - 1;
     return sorted[Math.max(0, Math.min(idx, sorted.length - 1))]!;
+  }
+
+  async startRun(
+    simId: string,
+    projectId: string,
+    triggeredBy: string,
+  ): Promise<SimulationRun> {
+    const defs = await this.config.db
+      .select()
+      .from(simulationDefinitions)
+      .where(and(eq(simulationDefinitions.id, simId), eq(simulationDefinitions.projectId, projectId)))
+      .limit(1);
+
+    if (defs.length === 0) {
+      throw new Error('Simulation definition not found');
+    }
+
+    const def = defs[0]!;
+    const initialState = (def.initialState ?? {}) as Record<string, unknown>;
+    const termination = def.termination as { maxDuration?: number; tickInterval?: number };
+    const generators = (def.eventGenerators as Array<{
+      type: 'http_traffic' | 'db_queries' | 'events' | 'auth' | 'background_jobs' | 'websocket';
+      config: Record<string, unknown>;
+      enabled: boolean;
+    }>) ?? [];
+
+    const simConfig: SimulationConfig = {
+      projectId,
+      simulationId: simId,
+      initialState,
+      duration: termination?.maxDuration ?? 60000,
+      tickInterval: termination?.tickInterval ?? 100,
+      generators,
+      failureInjection: (def.rulesConfig as SimulationConfig['failureInjection'])?.enabled
+        ? (def.rulesConfig as SimulationConfig['failureInjection'])
+        : { enabled: false, types: [], frequency: 0, durationMs: 0 },
+    };
+
+    return this.runSimulation(simId, projectId, triggeredBy, simConfig);
+  }
+
+  async listRuns(simId: string): Promise<SimulationRun[]> {
+    const runs = await this.config.db
+      .select()
+      .from(simulationRuns)
+      .where(eq(simulationRuns.definitionId, simId))
+      .orderBy(asc(simulationRuns.createdAt));
+
+    return runs as unknown as SimulationRun[];
+  }
+
+  async getRun(runId: string): Promise<SimulationRun | null> {
+    const runs = await this.config.db
+      .select()
+      .from(simulationRuns)
+      .where(eq(simulationRuns.id, runId))
+      .limit(1);
+
+    return (runs[0] as unknown as SimulationRun) ?? null;
+  }
+
+  async getRunEvents(runId: string): Promise<unknown[]> {
+    const events = await this.config.db
+      .select()
+      .from(simulationEvents)
+      .where(eq(simulationEvents.runId, runId))
+      .orderBy(asc(simulationEvents.simTime));
+
+    return events;
   }
 
   private async publish(type: EventType, projectId: string, payload: Record<string, unknown>): Promise<void> {

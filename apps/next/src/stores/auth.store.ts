@@ -1,39 +1,152 @@
 'use client';
 
+import { create } from 'zustand';
 import type { User } from '@genesis-1/shared';
+import { apiClient } from '@/lib/api-client';
 
 interface AuthState {
   user: User | null;
   token: string | null;
+  refreshToken: string | null;
   isAuthenticated: boolean;
+  isLoading: boolean;
+
+  login: (email: string, password: string) => Promise<void>;
+  register: (email: string, password: string, displayName: string) => Promise<void>;
+  logout: () => Promise<void>;
+  restoreSession: () => void;
+  refresh: () => Promise<void>;
 }
 
-const initialState: AuthState = {
+function parseJwtPayload(token: string): { exp?: number } | null {
+  try {
+    const base64 = token.split('.')[1];
+    return JSON.parse(atob(base64));
+  } catch {
+    return null;
+  }
+}
+
+const TOKEN_KEY = 'genesis_token';
+const REFRESH_KEY = 'genesis_refresh';
+
+export const useAuthStore = create<AuthState>((set, get) => ({
   user: null,
   token: null,
+  refreshToken: null,
   isAuthenticated: false,
-};
+  isLoading: true,
 
-// Stub: zustand-like store. Replace with zustand if needed.
-let state = { ...initialState };
-const listeners = new Set<() => void>();
+  login: async (email, password) => {
+    const data = await apiClient<{
+      user: User;
+      accessToken: string;
+      refreshToken: string;
+    }>('/api/v1/auth/login', {
+      method: 'POST',
+      body: { email, password },
+    });
 
-function notify() {
-  for (const fn of listeners) fn();
-}
+    localStorage.setItem(TOKEN_KEY, data.accessToken);
+    localStorage.setItem(REFRESH_KEY, data.refreshToken);
 
-export const authStore = {
-  getState: () => state,
-  subscribe: (fn: () => void) => {
-    listeners.add(fn);
-    return () => listeners.delete(fn);
+    set({
+      user: data.user,
+      token: data.accessToken,
+      refreshToken: data.refreshToken,
+      isAuthenticated: true,
+      isLoading: false,
+    });
   },
-  login: (user: User, token: string) => {
-    state = { user, token, isAuthenticated: true };
-    notify();
+
+  register: async (email, password, displayName) => {
+    const data = await apiClient<{
+      user: User;
+      accessToken: string;
+      refreshToken: string;
+    }>('/api/v1/auth/register', {
+      method: 'POST',
+      body: { email, password, displayName },
+    });
+
+    localStorage.setItem(TOKEN_KEY, data.accessToken);
+    localStorage.setItem(REFRESH_KEY, data.refreshToken);
+
+    set({
+      user: data.user,
+      token: data.accessToken,
+      refreshToken: data.refreshToken,
+      isAuthenticated: true,
+      isLoading: false,
+    });
   },
-  logout: () => {
-    state = { ...initialState };
-    notify();
+
+  logout: async () => {
+    const rf = get().refreshToken;
+    if (rf) {
+      try {
+        await apiClient('/api/v1/auth/logout', {
+          method: 'POST',
+          body: { refreshToken: rf },
+        });
+      } catch {
+        // Best-effort
+      }
+    }
+
+    localStorage.removeItem(TOKEN_KEY);
+    localStorage.removeItem(REFRESH_KEY);
+
+    set({
+      user: null,
+      token: null,
+      refreshToken: null,
+      isAuthenticated: false,
+      isLoading: false,
+    });
   },
-};
+
+  restoreSession: () => {
+    const token = localStorage.getItem(TOKEN_KEY);
+    const rf = localStorage.getItem(REFRESH_KEY);
+
+    if (!token) {
+      set({ isLoading: false });
+      return;
+    }
+
+    const payload = parseJwtPayload(token);
+    if (payload?.exp && payload.exp * 1000 < Date.now()) {
+      localStorage.removeItem(TOKEN_KEY);
+      localStorage.removeItem(REFRESH_KEY);
+      set({ isLoading: false });
+      return;
+    }
+
+    set({ token, refreshToken: rf, isAuthenticated: true, isLoading: false });
+  },
+
+  refresh: async () => {
+    const rf = get().refreshToken;
+    if (!rf) throw new Error('No refresh token');
+
+    const data = await apiClient<{
+      user: User;
+      accessToken: string;
+      refreshToken: string;
+    }>('/api/v1/auth/refresh', {
+      method: 'POST',
+      body: { refreshToken: rf },
+    });
+
+    localStorage.setItem(TOKEN_KEY, data.accessToken);
+    localStorage.setItem(REFRESH_KEY, data.refreshToken);
+
+    set({
+      user: data.user,
+      token: data.accessToken,
+      refreshToken: data.refreshToken,
+      isAuthenticated: true,
+    });
+  },
+}));

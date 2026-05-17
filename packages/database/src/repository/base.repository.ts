@@ -12,7 +12,7 @@ export class BaseRepository<T extends Record<string, unknown>> {
     const result = await this.db
       .select()
       .from(this.table)
-      .where(eq((this.table as Record<string, unknown>).id as never, id))
+      .where(eq((this.table as unknown as Record<string, unknown>).id as never, id))
       .limit(1);
     return (result[0] as T) ?? null;
   }
@@ -22,9 +22,9 @@ export class BaseRepository<T extends Record<string, unknown>> {
 
     if (where) {
       const conditions = Object.entries(where).map(([key, value]) =>
-        eq((this.table as Record<string, unknown>)[key] as never, value),
+        eq((this.table as unknown as Record<string, unknown>)[key] as never, value),
       );
-      query = query.where(and(...conditions));
+      query = query.where(and(...conditions)) as typeof query;
     }
 
     const result = await query.limit(limit).offset(offset);
@@ -32,7 +32,10 @@ export class BaseRepository<T extends Record<string, unknown>> {
   }
 
   async create(data: Record<string, unknown>): Promise<T> {
-    const result = await this.db.insert(this.table).values(data as never).returning();
+    const result = await this.db
+      .insert(this.table)
+      .values(data as never)
+      .returning();
     return result[0] as T;
   }
 
@@ -40,7 +43,7 @@ export class BaseRepository<T extends Record<string, unknown>> {
     const result = await this.db
       .update(this.table)
       .set(data as never)
-      .where(eq((this.table as Record<string, unknown>).id as never, id))
+      .where(eq((this.table as unknown as Record<string, unknown>).id as never, id))
       .returning();
     return (result[0] as T) ?? null;
   }
@@ -48,7 +51,7 @@ export class BaseRepository<T extends Record<string, unknown>> {
   async delete(id: string): Promise<boolean> {
     const result = await this.db
       .delete(this.table)
-      .where(eq((this.table as Record<string, unknown>).id as never, id))
+      .where(eq((this.table as unknown as Record<string, unknown>).id as never, id))
       .returning();
     return result.length > 0;
   }

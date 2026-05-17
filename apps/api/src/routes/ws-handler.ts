@@ -55,7 +55,7 @@ export async function wsHandler(app: FastifyInstance): Promise<void> {
     }));
 
     // Handle messages from client
-    socket.on('message', (raw) => {
+    socket.on('message', (raw: Buffer) => {
       try {
         const msg = JSON.parse(raw.toString());
         handleClientMessage(msg, conn, connectionId, app);

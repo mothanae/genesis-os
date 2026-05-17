@@ -111,6 +111,11 @@ export async function buildApp() {
   app.decorate('deploymentEngine', deploymentEngine);
   app.decorate('evolutionEngine', evolutionEngine);
 
+  // Auth service (decorated directly on root to avoid plugin encapsulation)
+  const { AuthService } = await import('./services/auth.service');
+  app.decorate('authService', new AuthService(db));
+  app.decorateRequest('user', null);
+
   await registerRoutes(app);
 
   return app;

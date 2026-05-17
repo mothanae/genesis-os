@@ -16,7 +16,14 @@ export async function graphRoutes(app: FastifyInstance): Promise<void> {
     const body = createNodeSchema.safeParse(request.body);
     if (!body.success) return reply.status(422).send({ success: false, error: 'Validation error', details: body.error.flatten() });
 
-    const node = await app.graphEngine.createNode(projectId, body.data);
+    const d = body.data;
+    const node = await app.graphEngine.createNode(projectId, {
+      type: d.nodeType,
+      name: d.label,
+      description: d.description,
+      position: { x: d.positionX, y: d.positionY },
+      metadata: { ...d.metadata, properties: d.properties },
+    });
     return reply.status(201).send({ success: true, data: node });
   });
 
@@ -50,7 +57,15 @@ export async function graphRoutes(app: FastifyInstance): Promise<void> {
     const body = createEdgeSchema.safeParse(request.body);
     if (!body.success) return reply.status(422).send({ success: false, error: 'Validation error', details: body.error.flatten() });
 
-    const edge = await app.graphEngine.createEdge(projectId, body.data);
+    const d = body.data;
+    const edge = await app.graphEngine.createEdge(projectId, {
+      source: d.sourceNodeId,
+      target: d.targetNodeId,
+      type: d.edgeType,
+      label: d.label,
+      weight: d.weight,
+      metadata: { ...d.metadata, properties: d.properties },
+    });
     return reply.status(201).send({ success: true, data: edge });
   });
 

@@ -27,7 +27,12 @@ export async function graphqlRoutes(app: FastifyInstance): Promise<void> {
   });
 }
 
-async function executeGraphQL(app: FastifyInstance, query: string, variables: Record<string, unknown>): Promise<unknown> {
+interface GraphQLResult {
+  [key: string]: unknown;
+  _errors?: string[];
+}
+
+async function executeGraphQL(app: FastifyInstance, query: string, variables: Record<string, unknown>): Promise<GraphQLResult> {
   // Parse the query string to determine what's being requested
   const trimmed = query.trim();
 
