@@ -53,7 +53,7 @@ export interface UpgradePath {
 
 export interface UpgradeStep {
   order: number;
-  action: 'add_node' | 'remove_node' | 'add_edge' | 'remove_edge' | 'update_config' | 'run_migration' | 'validate';
+  action: 'add_node' | 'remove_node' | 'add_edge' | 'remove_edge' | 'update_config' | 'add_config' | 'analyze' | 'run_migration' | 'validate';
   description: string;
   nodeId?: string;
   edgeId?: string;
@@ -63,7 +63,7 @@ export interface UpgradeStep {
 
 export interface SelfHealAction {
   id: string;
-  type: 'fix_cycle' | 'add_missing_dependency' | 'remove_orphan' | 'fix_port' | 'add_runtime_config';
+  type: 'fix_cycle' | 'add_missing_dependency' | 'remove_orphan' | 'fix_port' | 'add_runtime_config' | 'add_auth' | 'add_event_bus' | 'recommend_data_service' | 'add_rate_limiter';
   description: string;
   nodeId?: string;
   edgeId?: string;
@@ -324,6 +324,131 @@ export class EvolutionEngine {
       risk: 'low',
       automated: true,
     });
+
+    // Path: Split monolith to microservices
+    if (serviceNodes.length === 1 && nodes.length > 5) {
+      paths.push({
+        id: 'upgrade-split-monolith',
+        name: 'Decompose Monolith into Microservices',
+        description: `Split single service "${serviceNodes[0]!.name}" into bounded contexts based on data dependencies`,
+        fromVersion: 'current',
+        toVersion: 'microservices',
+        steps: [
+          { order: 1, action: 'analyze', description: 'Identify bounded contexts from data dependencies' },
+          { order: 2, action: 'add_node', description: 'Create per-context services' },
+          { order: 3, action: 'add_node', description: 'Add API gateway for routing' },
+          { order: 4, action: 'add_edge', description: 'Wire inter-service communication via events' },
+          { order: 5, action: 'update_config', description: 'Configure per-service databases' },
+        ],
+        estimatedEffortMinutes: 120,
+        risk: 'medium',
+        automated: false,
+      });
+    }
+
+    // Path: Add caching layer
+    const hasDatabase = nodes.some((n) => n.type === 'database');
+    const hasCache = nodes.some((n) => n.type === 'cache');
+    if (hasDatabase && !hasCache) {
+      paths.push({
+        id: 'upgrade-add-caching',
+        name: 'Add Caching Layer',
+        description: 'Introduce Redis cache to reduce database load by 40-80%',
+        fromVersion: 'current',
+        toVersion: 'cached',
+        steps: [
+          { order: 1, action: 'add_node', description: 'Add Redis cache node' },
+          { order: 2, action: 'add_edge', description: 'Route read-heavy services through cache' },
+          { order: 3, action: 'update_config', description: 'Configure cache TTLs and invalidation' },
+        ],
+        estimatedEffortMinutes: 45,
+        risk: 'low',
+        automated: true,
+      });
+    }
+
+    // Path: Add CI/CD pipeline
+    paths.push({
+      id: 'upgrade-cicd',
+      name: 'Add CI/CD Pipeline',
+      description: 'Automated testing, build, and deployment with GitHub Actions',
+      fromVersion: 'current',
+      toVersion: 'ci-cd-enabled',
+      steps: [
+        { order: 1, action: 'add_config', description: 'Generate GitHub Actions workflow' },
+        { order: 2, action: 'add_config', description: 'Configure Docker build and push' },
+        { order: 3, action: 'add_config', description: 'Add deployment stage with health checks' },
+        { order: 4, action: 'add_config', description: 'Configure environment-specific secrets' },
+      ],
+      estimatedEffortMinutes: 30,
+      risk: 'low',
+      automated: true,
+    });
+
+    // Path: Add API gateway for multi-service architectures
+    const hasGateway = nodes.some((n) => n.type === 'api_gateway');
+    if (serviceNodes.length > 2 && !hasGateway) {
+      paths.push({
+        id: 'upgrade-api-gateway',
+        name: 'Add API Gateway',
+        description: 'Centralize routing, auth, rate limiting, and CORS for multiple services',
+        fromVersion: 'current',
+        toVersion: 'gateway-managed',
+        steps: [
+          { order: 1, action: 'add_node', description: 'Add API Gateway node' },
+          { order: 2, action: 'add_edge', description: 'Route gateway to backend services' },
+          { order: 3, action: 'update_config', description: 'Configure rate limiting and CORS' },
+          { order: 4, action: 'add_node', description: 'Add auth service for token validation' },
+        ],
+        estimatedEffortMinutes: 90,
+        risk: 'medium',
+        automated: false,
+      });
+    }
+
+    // Path: Add event-driven architecture
+    const hasEvents = nodes.some((n) => n.type === 'event_topic' || n.type === 'queue');
+    if (serviceNodes.length > 2 && !hasEvents && edges.length > 5) {
+      paths.push({
+        id: 'upgrade-event-driven',
+        name: 'Adopt Event-Driven Architecture',
+        description: 'Replace direct service-to-service calls with async event-driven communication',
+        fromVersion: 'current',
+        toVersion: 'event-driven',
+        steps: [
+          { order: 1, action: 'add_node', description: 'Add event bus (Kafka/RabbitMQ/Redis Streams)' },
+          { order: 2, action: 'add_node', description: 'Add event topics for each domain' },
+          { order: 3, action: 'add_edge', description: 'Wire services to publish and subscribe' },
+          { order: 4, action: 'add_node', description: 'Add dead letter queue for failed events' },
+        ],
+        estimatedEffortMinutes: 120,
+        risk: 'high',
+        automated: false,
+      });
+    }
+
+    // Path: Add auto-scaling
+    const hasScaling = nodes.some((n) => {
+      const rt = n.runtime as Record<string, unknown> | null;
+      return rt?.scaling;
+    });
+    if (serviceNodes.length > 0 && !hasScaling) {
+      paths.push({
+        id: 'upgrade-autoscaling',
+        name: 'Configure Auto-Scaling',
+        description: 'Add horizontal pod autoscaling based on CPU and memory metrics',
+        fromVersion: 'current',
+        toVersion: 'auto-scaled',
+        steps: [
+          { order: 1, action: 'update_config', description: 'Define resource requests and limits' },
+          { order: 2, action: 'update_config', description: 'Configure HPA with CPU/memory thresholds' },
+          { order: 3, action: 'add_config', description: 'Set up cluster autoscaler' },
+        ],
+        estimatedEffortMinutes: 45,
+        risk: 'low',
+        automated: true,
+      });
+    }
 
     return paths;
   }

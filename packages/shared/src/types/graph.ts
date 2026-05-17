@@ -260,6 +260,13 @@ export interface TopologyValidation {
   errors: GraphValidationError[];
   warnings: GraphValidationWarning[];
   suggestions: GraphSuggestion[];
+  inferredSubsystems?: Array<{
+    system: string;
+    reason: string;
+    suggestedNodes: Array<{ type: string; name: string; description: string }>;
+    suggestedEdges: Array<{ source: string; target: string; type: string; label: string }>;
+    confidence: number;
+  }>;
 }
 
 export interface GraphValidationError {

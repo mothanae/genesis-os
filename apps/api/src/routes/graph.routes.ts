@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { createNodeSchema, createEdgeSchema } from '@genesis-1/shared/schemas';
-import { ArchitectureDiagrams, VersionHistory } from '@genesis-1/graph-engine';
+import { ArchitectureDiagrams, VersionHistory, SemanticInference } from '@genesis-1/graph-engine';
 
 export async function graphRoutes(app: FastifyInstance): Promise<void> {
   // ── Nodes ─────────────────────────────────────────────────────
@@ -207,5 +207,35 @@ export async function graphRoutes(app: FastifyInstance): Promise<void> {
     const versionHistory = new VersionHistory(app.db);
     await versionHistory.rollback(projectId, version);
     return reply.send({ success: true, data: { message: `Rolled back to version ${version}` } });
+  });
+
+  // Semantic inference — analyze topology for implied subsystems
+  app.get('/:projectId/graph/infer', async (request, reply) => {
+    const { projectId } = request.params as { projectId: string };
+    const { data: nodes } = await app.graphEngine.listNodes(projectId);
+    const edges = await app.graphEngine.listEdges(projectId);
+
+    const inference = new SemanticInference();
+    const results = inference.infer(nodes, edges);
+
+    return reply.send({ success: true, data: results });
+  });
+
+  // Infer subsystems for a specific connection (real-time suggestion during edge creation)
+  app.post('/:projectId/graph/infer-connection', async (request, reply) => {
+    const { sourceType, targetType, edgeType } = (request.body ?? {}) as {
+      sourceType: string;
+      targetType: string;
+      edgeType: string;
+    };
+
+    if (!sourceType || !targetType) {
+      return reply.status(400).send({ success: false, error: 'sourceType and targetType are required' });
+    }
+
+    const inference = new SemanticInference();
+    const results = inference.inferForConnection(sourceType, targetType, edgeType ?? 'depends_on');
+
+    return reply.send({ success: true, data: results });
   });
 }

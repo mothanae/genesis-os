@@ -7,8 +7,11 @@ import type {
   GraphValidationWarning,
   GraphSuggestion,
 } from '@genesis-1/shared';
+import { SemanticInference } from './semantic-inference';
 
 export class GraphValidator {
+  private semanticInference = new SemanticInference();
+
   validate(
     nodes: GraphNode[],
     edges: GraphEdge[],
@@ -190,11 +193,23 @@ export class GraphValidator {
       edgeKeys.add(key);
     }
 
+    // 11. Semantic inference — suggest implied subsystems based on topology
+    const inferredSubsystems = this.semanticInference.infer(nodes, edges);
+    for (const inference of inferredSubsystems) {
+      suggestions.push({
+        code: 'SEMANTIC_INFERENCE',
+        message: `Inferred: ${inference.system} — ${inference.reason}`,
+        suggestion: `Consider adding: ${inference.suggestedNodes.map((n) => `${n.type} "${n.name}"`).join(', ')} (confidence: ${(inference.confidence * 100).toFixed(0)}%)`,
+        nodeId: undefined,
+      });
+    }
+
     return {
       valid: errors.length === 0,
       errors,
       warnings,
       suggestions,
+      inferredSubsystems: inferredSubsystems.length > 0 ? inferredSubsystems : undefined,
     };
   }
 
