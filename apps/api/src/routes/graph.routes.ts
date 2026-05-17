@@ -27,6 +27,111 @@ export async function graphRoutes(app: FastifyInstance): Promise<void> {
     return reply.status(201).send({ success: true, data: node });
   });
 
+  // Batch save nodes and edges (used by builder "Save Graph" button)
+  app.post('/:projectId/graph/batch', async (request, reply) => {
+    const { projectId } = request.params as { projectId: string };
+    const body = request.body as { nodes?: unknown[]; edges?: unknown[] };
+
+    const results: { nodesCreated: number; nodesUpdated: number; edgesCreated: number; edgesUpdated: number; errors: string[] } = {
+      nodesCreated: 0,
+      nodesUpdated: 0,
+      edgesCreated: 0,
+      edgesUpdated: 0,
+      errors: [],
+    };
+
+    // Process nodes
+    if (Array.isArray(body.nodes)) {
+      const existingNodes = await app.graphEngine.listNodes(projectId);
+      const existingIds = new Set(existingNodes.data.map((n) => n.id));
+
+      for (const raw of body.nodes) {
+        try {
+          const n = raw as Record<string, unknown>;
+          const parsed = createNodeSchema.safeParse({
+            nodeType: n.type ?? n.nodeType,
+            label: n.name ?? n.label,
+            description: n.description,
+            positionX: (n.position as Record<string, number>)?.x ?? n.positionX ?? 0,
+            positionY: (n.position as Record<string, number>)?.y ?? n.positionY ?? 0,
+            properties: n.properties,
+          });
+
+          if (!parsed.success) {
+            results.errors.push(`Invalid node: ${JSON.stringify(parsed.error.flatten())}`);
+            continue;
+          }
+
+          const d = parsed.data;
+          if (typeof n.id === 'string' && existingIds.has(n.id)) {
+            await app.graphEngine.updateNode(n.id, {
+              type: d.nodeType,
+              name: d.label,
+              description: d.description,
+              position: { x: d.positionX, y: d.positionY },
+            });
+            results.nodesUpdated++;
+          } else {
+            await app.graphEngine.createNode(projectId, {
+              type: d.nodeType,
+              name: d.label,
+              description: d.description,
+              position: { x: d.positionX, y: d.positionY },
+              metadata: { ...d.metadata, properties: d.properties },
+            });
+            results.nodesCreated++;
+          }
+        } catch (err) {
+          results.errors.push(`Node error: ${(err as Error).message}`);
+        }
+      }
+    }
+
+    // Process edges
+    if (Array.isArray(body.edges)) {
+      const existingEdges = await app.graphEngine.listEdges(projectId);
+      const existingEdgeIds = new Set(existingEdges.map((e) => e.id));
+
+      for (const raw of body.edges) {
+        try {
+          const e = raw as Record<string, unknown>;
+          const parsed = createEdgeSchema.safeParse({
+            sourceNodeId: e.source,
+            targetNodeId: e.target,
+            edgeType: e.type ?? 'depends_on',
+            label: e.label,
+          });
+
+          if (!parsed.success) {
+            results.errors.push(`Invalid edge: ${JSON.stringify(parsed.error.flatten())}`);
+            continue;
+          }
+
+          const d = parsed.data;
+          if (typeof e.id === 'string' && existingEdgeIds.has(e.id)) {
+            await app.graphEngine.updateEdge(e.id, {
+              type: d.edgeType,
+              label: d.label,
+            });
+            results.edgesUpdated++;
+          } else {
+            await app.graphEngine.createEdge(projectId, {
+              type: d.edgeType,
+              source: d.sourceNodeId,
+              target: d.targetNodeId,
+              label: d.label ?? undefined,
+            });
+            results.edgesCreated++;
+          }
+        } catch (err) {
+          results.errors.push(`Edge error: ${(err as Error).message}`);
+        }
+      }
+    }
+
+    return reply.send({ success: true, data: results });
+  });
+
   app.get('/:projectId/graph/nodes/:nodeId', async (request, reply) => {
     const { nodeId } = request.params as { nodeId: string };
     const node = await app.graphEngine.getNode(nodeId);

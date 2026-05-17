@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { createProjectSchema, updateProjectSchema } from '@genesis-1/shared/schemas';
-import { projects } from '@genesis-1/database';
+import { projects, projectMembers } from '@genesis-1/database';
 import { eq, or, and, sql } from 'drizzle-orm';
 import { authenticate } from '../plugins/auth';
 
@@ -139,5 +139,81 @@ export async function projectRoutes(app: FastifyInstance): Promise<void> {
     await app.db.delete(projects).where(eq(projects.id, projectId));
 
     return reply.send({ success: true, data: { message: 'Project deleted' } });
+  });
+
+  // ── Project Members ──────────────────────────────────────────────
+
+  // List members
+  app.get('/:projectId/members', async (request, reply) => {
+    const { projectId } = request.params as { projectId: string };
+
+    const result = await app.db
+      .select()
+      .from(projectMembers)
+      .where(eq(projectMembers.projectId, projectId));
+
+    return reply.send({ success: true, data: result });
+  });
+
+  // Add member
+  app.post('/:projectId/members', async (request, reply) => {
+    const { projectId } = request.params as { projectId: string };
+    const userId = request.user!.sub;
+    const { memberId, role } = (request.body ?? {}) as { memberId?: string; role?: string };
+
+    if (!memberId) {
+      return reply.status(400).send({ success: false, error: 'memberId is required' });
+    }
+
+    // Verify ownership
+    const existing = await app.db
+      .select({ ownerId: projects.ownerId })
+      .from(projects)
+      .where(eq(projects.id, projectId))
+      .limit(1);
+
+    if (existing.length === 0) {
+      return reply.status(404).send({ success: false, error: 'Project not found' });
+    }
+    if (existing[0]!.ownerId !== userId) {
+      return reply.status(403).send({ success: false, error: 'Only the project owner can manage members' });
+    }
+
+    const result = await app.db
+      .insert(projectMembers)
+      .values({
+        projectId,
+        userId: memberId,
+        role: (role as 'owner' | 'admin' | 'editor' | 'viewer') ?? 'editor',
+      })
+      .returning();
+
+    return reply.status(201).send({ success: true, data: result[0] });
+  });
+
+  // Remove member
+  app.delete('/:projectId/members/:memberId', async (request, reply) => {
+    const { projectId, memberId } = request.params as { projectId: string; memberId: string };
+    const userId = request.user!.sub;
+
+    // Verify ownership
+    const existing = await app.db
+      .select({ ownerId: projects.ownerId })
+      .from(projects)
+      .where(eq(projects.id, projectId))
+      .limit(1);
+
+    if (existing.length === 0) {
+      return reply.status(404).send({ success: false, error: 'Project not found' });
+    }
+    if (existing[0]!.ownerId !== userId) {
+      return reply.status(403).send({ success: false, error: 'Only the project owner can manage members' });
+    }
+
+    await app.db
+      .delete(projectMembers)
+      .where(and(eq(projectMembers.projectId, projectId), eq(projectMembers.userId, memberId)));
+
+    return reply.send({ success: true, data: { message: 'Member removed' } });
   });
 }
