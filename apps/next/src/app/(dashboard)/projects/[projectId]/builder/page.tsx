@@ -79,17 +79,32 @@ export default function BuilderPage() {
             onClick={async () => {
               try {
                 const state = useCanvasStore.getState();
-                for (const node of state.nodes) {
-                  await apiClient(`/api/v1/projects/${projectId}/graph/nodes`, {
-                    method: 'POST',
-                    body: {
-                      type: node.data?.nodeType ?? 'service',
-                      name: node.data?.label ?? 'Untitled',
-                      position: { x: node.position.x, y: node.position.y },
-                    },
-                  });
-                }
-                setSyncStatus('saved');
+                const result = await apiClient<{
+                  nodesCreated: number; nodesUpdated: number;
+                  edgesCreated: number; edgesUpdated: number;
+                  errors: string[];
+                }>(`/api/v1/projects/${projectId}/graph/batch`, {
+                  method: 'POST',
+                  body: {
+                    nodes: state.nodes.map((n) => ({
+                      id: n.id,
+                      nodeType: n.data?.nodeType ?? 'service',
+                      label: n.data?.label ?? 'Untitled',
+                      description: n.data?.description,
+                      positionX: n.position.x,
+                      positionY: n.position.y,
+                      properties: n.data?.properties,
+                    })),
+                    edges: state.edges.map((e) => ({
+                      id: e.id,
+                      sourceNodeId: e.source,
+                      targetNodeId: e.target,
+                      edgeType: e.data?.type ?? 'depends_on',
+                      label: e.label ?? e.data?.label,
+                    })),
+                  },
+                });
+                setSyncStatus(result.errors?.length ? 'error' : 'saved');
               } catch { setSyncStatus('error'); }
             }}
             className="px-3 py-1 bg-green-600 hover:bg-green-700 rounded text-white"
