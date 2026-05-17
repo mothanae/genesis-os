@@ -17,6 +17,7 @@ import { GenerationEngine } from '@genesis-1/generation-engine';
 import { DeploymentEngine } from '@genesis-1/deployment-engine';
 import { EvolutionEngine } from '@genesis-1/evolution-engine';
 import { registerRoutes } from './routes';
+import { registerErrorHandler } from './plugins/error-handler';
 
 export async function buildApp() {
   const app = Fastify({
@@ -135,6 +136,9 @@ export async function buildApp() {
   app.decorateRequest('user', null);
 
   await registerRoutes(app);
+
+  // Global error handler — must be registered after routes
+  registerErrorHandler(app);
 
   return app;
 }
