@@ -22,25 +22,34 @@ const operators: Record<string, OperatorFn> = {
   and: (args, context) => args.every((arg) => evaluate(arg as RuleCondition, context)),
   or: (args, context) => args.some((arg) => evaluate(arg as RuleCondition, context)),
   not: ([arg], context) => !evaluate(arg as RuleCondition, context),
-  all: ([args], context) =>
-    ((args as Array<{ as?: string; condition?: RuleCondition }>) ?? []).every(
-      (item) => evaluate(item.condition ?? {}, { ...context, [item.as ?? 'item']: item }),
-    ),
-  any: ([args], context) =>
-    ((args as Array<{ as?: string; condition?: RuleCondition }>) ?? []).some(
-      (item) => evaluate(item.condition ?? {}, { ...context, [item.as ?? 'item']: item }),
-    ),
-  none: ([args], context) =>
-    !((args as Array<{ as?: string; condition?: RuleCondition }>) ?? []).some(
-      (item) => evaluate(item.condition ?? {}, { ...context, [item.as ?? 'item']: item }),
-    ),
+  all: ([dataRef, condition], context) => {
+    const items = (typeof dataRef === 'object' && dataRef !== null && 'var' in (dataRef as object))
+      ? resolveVar((dataRef as { var: string }).var, context) as unknown[]
+      : dataRef as unknown[];
+    if (!Array.isArray(items)) return false;
+    return items.every((item) => evaluate(condition as RuleCondition, { ...context, ...(item as object) }));
+  },
+  any: ([dataRef, condition], context) => {
+    const items = (typeof dataRef === 'object' && dataRef !== null && 'var' in (dataRef as object))
+      ? resolveVar((dataRef as { var: string }).var, context) as unknown[]
+      : dataRef as unknown[];
+    if (!Array.isArray(items)) return false;
+    return items.some((item) => evaluate(condition as RuleCondition, { ...context, ...(item as object) }));
+  },
+  none: ([dataRef, condition], context) => {
+    const items = (typeof dataRef === 'object' && dataRef !== null && 'var' in (dataRef as object))
+      ? resolveVar((dataRef as { var: string }).var, context) as unknown[]
+      : dataRef as unknown[];
+    if (!Array.isArray(items)) return false;
+    return !items.some((item) => evaluate(condition as RuleCondition, { ...context, ...(item as object) }));
+  },
   exists: ([a]) => a !== null && a !== undefined,
 };
 
 type RuleCondition = { [operator: string]: unknown[] | RuleCondition[] } | Record<string, unknown>;
 
 function resolveVar(varPath: string, context: Record<string, unknown>): unknown {
-  const path = varPath.replace(/^event\.?/, '').split('.');
+  const path = varPath.split('.');
   let current: unknown = context;
   for (const key of path) {
     if (current === null || current === undefined) return undefined;

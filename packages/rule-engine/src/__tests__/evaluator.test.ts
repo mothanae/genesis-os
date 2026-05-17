@@ -49,10 +49,14 @@ describe('JsonLogicEvaluator', () => {
   });
 
   it('evaluates all / any / none', () => {
-    const context = { items: [{ val: 10 }, { val: 20 }, { val: 30 }] };
-    expect(evaluator.evaluate({ all: [{ var: 'context.items' }, { gte: [{ var: 'item.val' }, 10] }] }, context)).toBe(true);
-    expect(evaluator.evaluate({ any: [{ var: 'context.items' }, { gt: [{ var: 'item.val' }, 25] }] }, context)).toBe(true);
-    expect(evaluator.evaluate({ none: [{ var: 'context.items' }, { gt: [{ var: 'item.val' }, 100] }] }, context)).toBe(true);
+    const items = [{ val: 10 }, { val: 20 }, { val: 30 }];
+    const context = { items };
+    // all items have val >= 10
+    expect(evaluator.evaluate({ all: [{ var: 'items' }, { gte: [{ var: 'val' }, 10] }] }, context)).toBe(true);
+    // any item has val > 25
+    expect(evaluator.evaluate({ any: [{ var: 'items' }, { gt: [{ var: 'val' }, 25] }] }, context)).toBe(true);
+    // no item has val > 100
+    expect(evaluator.evaluate({ none: [{ var: 'items' }, { gt: [{ var: 'val' }, 100] }] }, context)).toBe(true);
   });
 
   it('resolves nested var paths', () => {
