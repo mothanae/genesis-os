@@ -2,6 +2,7 @@ export { EvolutionEngine } from './engine';
 export { ArchitectureMemory } from './memory';
 export { TemplateRegistry } from './templates';
 export { SelfHealer } from './self-healer';
+export { DrizzlePersistenceProvider } from './persistence';
 export type {
   EvolutionConfig, EvolutionResult, UpgradePath, UpgradeStep,
   ArchitectureInsight, SelfHealAction, TemplateMatch, LearnedPattern,

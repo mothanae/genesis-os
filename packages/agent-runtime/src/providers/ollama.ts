@@ -24,6 +24,9 @@ export interface LLMProvider {
   completeWithTools(prompt: string, tools: unknown[], systemPrompt?: string): Promise<LLMResponse>;
 }
 
+import { AnthropicProvider } from './anthropic';
+import { OpenAIProvider } from './openai';
+
 export class OllamaProvider implements LLMProvider {
   private baseUrl: string;
   private model: string;
@@ -124,15 +127,23 @@ export class OllamaProvider implements LLMProvider {
 
 /**
  * Provider factory — selects the right LLM based on available config.
+ * Priority: Anthropic > OpenAI > Ollama (if multiple are configured, first wins).
  */
 export function createLLMProvider(config: {
   ollama?: OllamaConfig;
   openaiApiKey?: string;
+  openaiModel?: string;
   anthropicApiKey?: string;
+  anthropicModel?: string;
 }): LLMProvider | null {
+  if (config.anthropicApiKey) {
+    return new AnthropicProvider({ apiKey: config.anthropicApiKey, model: config.anthropicModel });
+  }
+  if (config.openaiApiKey) {
+    return new OpenAIProvider({ apiKey: config.openaiApiKey, model: config.openaiModel });
+  }
   if (config.ollama) {
     return new OllamaProvider(config.ollama);
   }
-  // OpenAI and Anthropic providers would be created here with their respective SDKs
   return null;
 }

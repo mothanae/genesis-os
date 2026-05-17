@@ -10,7 +10,7 @@ import Redis from 'ioredis';
 import { EventPublisher, EventSubscriber } from '@genesis-1/event-bus';
 import { GraphEngine } from '@genesis-1/graph-engine';
 import { RuleEngine } from '@genesis-1/rule-engine';
-import { AgentRuntime, AgentOrchestrator, OllamaProvider } from '@genesis-1/agent-runtime';
+import { AgentRuntime, AgentOrchestrator, createLLMProvider } from '@genesis-1/agent-runtime';
 import type { LLMProvider } from '@genesis-1/agent-runtime';
 import { SimulationEngine } from '@genesis-1/simulation-engine';
 import { GenerationEngine } from '@genesis-1/generation-engine';
@@ -94,15 +94,14 @@ export async function buildApp() {
   const agentRuntime = new AgentRuntime({ db, eventBus: eventPublisher });
   const simulationEngine = new SimulationEngine({ db, eventBus: eventPublisher });
 
-  // LLM provider (Ollama — local LLM server)
-  let llmProvider: LLMProvider | undefined;
-  const ollamaBaseUrl = process.env.OLLAMA_BASE_URL ?? 'http://localhost:11434';
-  const ollamaModel = process.env.OLLAMA_MODEL ?? 'llama3.2';
-  try {
-    llmProvider = new OllamaProvider({ baseUrl: ollamaBaseUrl, model: ollamaModel });
-  } catch {
-    // Ollama is optional — orchestrator falls back to deterministic analysis
-  }
+  // LLM provider — selects best available: Anthropic > OpenAI > Ollama
+  const llmProvider: LLMProvider | undefined = createLLMProvider({
+    anthropicApiKey: process.env.ANTHROPIC_API_KEY,
+    anthropicModel: process.env.ANTHROPIC_MODEL,
+    openaiApiKey: process.env.OPENAI_API_KEY,
+    openaiModel: process.env.OPENAI_MODEL,
+    ollama: { baseUrl: process.env.OLLAMA_BASE_URL ?? 'http://localhost:11434', model: process.env.OLLAMA_MODEL ?? 'llama3.2' },
+  }) ?? undefined;
 
   // Orchestrator & higher-order engines
   const orchestrator = new AgentOrchestrator({
@@ -114,7 +113,7 @@ export async function buildApp() {
   });
   const generationEngine = new GenerationEngine(graphEngine, eventPublisher);
   const deploymentEngine = new DeploymentEngine(graphEngine, eventPublisher);
-  const evolutionEngine = new EvolutionEngine(graphEngine, eventPublisher);
+  const evolutionEngine = new EvolutionEngine(graphEngine, eventPublisher, db);
 
   // Decorators for route handlers
   app.decorate('db', db);

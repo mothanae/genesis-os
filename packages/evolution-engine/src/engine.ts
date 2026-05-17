@@ -1,9 +1,12 @@
 import type { GraphEngine } from '@genesis-1/graph-engine';
 import type { EventPublisher } from '@genesis-1/event-bus';
 import type { GraphNode, GraphEdge, GraphSnapshot } from '@genesis-1/shared';
+import type { DatabaseClient } from '@genesis-1/database';
 import { ArchitectureMemory } from './memory';
+import type { PersistenceProvider } from './memory';
 import { TemplateRegistry } from './templates';
 import { SelfHealer } from './self-healer';
+import { DrizzlePersistenceProvider } from './persistence';
 
 // ── Types ─────────────────────────────────────────────────────
 
@@ -97,10 +100,16 @@ export class EvolutionEngine {
   constructor(
     private readonly graphEngine: GraphEngine,
     private readonly eventBus: EventPublisher,
+    db?: DatabaseClient,
   ) {
     this.memory = new ArchitectureMemory();
     this.templates = new TemplateRegistry();
     this.selfHealer = new SelfHealer(graphEngine);
+
+    if (db) {
+      const persistence = new DrizzlePersistenceProvider(db);
+      this.memory.setPersistence(persistence);
+    }
   }
 
   async evolve(config: EvolutionConfig): Promise<EvolutionResult> {
@@ -123,6 +132,10 @@ export class EvolutionEngine {
 
     // 6. Store in memory for future learning
     await this.memory.record({ projectId: config.projectId, timestamp: Date.now(), nodeCount: nodes.length, edgeCount: edges.length, insights, templateMatches });
+
+    // 7. Learn patterns from accumulated memory
+    const learned = await this.memory.learnPatterns();
+    // Persisted via DrizzlePersistenceProvider if db is configured
 
     return {
       projectId: config.projectId,
