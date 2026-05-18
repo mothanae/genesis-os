@@ -180,8 +180,8 @@ describe('Simulation Schemas', () => {
       name: 'Full Test',
       initialState: { users: 100 },
       eventGenerators: [
-        { type: 'traffic', config: { rps: 50 }, enabled: true },
-        { type: 'failure', config: { probability: 0.1 }, enabled: false },
+        { type: 'http_traffic', config: { rps: 50 }, enabled: true },
+        { type: 'db_queries', config: { probability: 0.1 }, enabled: false },
       ],
       termination: { maxSteps: 5000, maxTime: 3600 },
     });

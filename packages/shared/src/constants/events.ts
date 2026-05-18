@@ -34,28 +34,46 @@ export const EVENT_CHANNELS = {
   FLOW_STARTED: 'genesis-1.flow.started',
   FLOW_COMPLETED: 'genesis-1.flow.completed',
   FLOW_FAILED: 'genesis-1.flow.failed',
+  FLOW_NODE_ENTERED: 'genesis-1.flow.node.entered',
+  FLOW_NODE_EXITED: 'genesis-1.flow.node.exited',
 
   // Simulation
   SIMULATION_STARTED: 'genesis-1.simulation.started',
   SIMULATION_STOPPED: 'genesis-1.simulation.stopped',
+  SIMULATION_RUN_STARTED: 'genesis-1.simulation.run.started',
+  SIMULATION_RUN_PROGRESS: 'genesis-1.simulation.run.progress',
+  SIMULATION_RUN_COMPLETED: 'genesis-1.simulation.run.completed',
+  SIMULATION_RUN_FAILED: 'genesis-1.simulation.run.failed',
+  SIMULATION_MILESTONE_REACHED: 'genesis-1.simulation.milestone.reached',
 
   // Generation
   GENERATION_STARTED: 'genesis-1.generation.started',
   GENERATION_COMPLETED: 'genesis-1.generation.completed',
   GENERATION_FAILED: 'genesis-1.generation.failed',
+  GENERATION_MODULE_GENERATED: 'genesis-1.generation.module.generated',
 
   // Deployment
   DEPLOYMENT_STARTED: 'genesis-1.deployment.started',
   DEPLOYMENT_COMPLETED: 'genesis-1.deployment.completed',
   DEPLOYMENT_FAILED: 'genesis-1.deployment.failed',
+  DEPLOYMENT_ROLLBACK: 'genesis-1.deployment.rollback',
 
   // Rules
+  RULE_DEFINITION_CREATED: 'genesis-1.rule.definition.created',
+  RULE_DEFINITION_UPDATED: 'genesis-1.rule.definition.updated',
+  RULE_DEFINITION_DELETED: 'genesis-1.rule.definition.deleted',
+  RULE_EVALUATION_COMPLETED: 'genesis-1.rule.evaluation.completed',
   RULE_VIOLATION: 'genesis-1.rule.violation',
+  RULE_VIOLATION_CREATED: 'genesis-1.rule.violation.created',
+  RULE_VIOLATION_RESOLVED: 'genesis-1.rule.violation.resolved',
 
   // Agents
   AGENT_STARTED: 'genesis-1.agent.started',
   AGENT_COMPLETED: 'genesis-1.agent.completed',
   AGENT_FAILED: 'genesis-1.agent.failed',
+  AGENT_DEFINITION_CREATED: 'genesis-1.agent.definition.created',
+  AGENT_DEFINITION_UPDATED: 'genesis-1.agent.definition.updated',
+  AGENT_DEFINITION_DELETED: 'genesis-1.agent.definition.deleted',
 
   // All agent sub-types
   AGENT_EXECUTION_STARTED: 'genesis-1.agent.execution.started',

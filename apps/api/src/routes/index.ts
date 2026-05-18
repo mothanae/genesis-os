@@ -11,42 +11,33 @@ import { deploymentRoutes } from './deployment.routes';
 import { evolutionRoutes } from './evolution.routes';
 import { graphqlRoutes } from './graphql.routes';
 import { wsHandler } from './ws-handler';
+import { authenticate } from '../plugins/auth';
 import './types';
 
 export async function registerRoutes(app: FastifyInstance): Promise<void> {
-  // Health
+  // Health (no auth required)
   await app.register(healthRoutes);
 
-  // Auth
+  // Auth (no auth required for login/register)
   await app.register(authRoutes, { prefix: '/api/v1/auth' });
 
-  // Projects (CRUD + members)
-  await app.register(projectRoutes, { prefix: '/api/v1/projects' });
+  // WebSocket handler (handles its own token auth)
+  await wsHandler(app);
 
-  // Graph engine routes
-  await app.register(graphRoutes, { prefix: '/api/v1/projects' });
-
-  // Agent runtime routes
-  await app.register(agentRoutes, { prefix: '/api/v1/projects' });
-
-  // Rule engine routes
-  await app.register(ruleRoutes, { prefix: '/api/v1/projects' });
-
-  // Simulation engine routes
-  await app.register(simulationRoutes, { prefix: '/api/v1/projects' });
-
-  // Generation engine + execution loop routes
-  await app.register(generationRoutes, { prefix: '/api/v1/projects' });
-
-  // Deployment engine routes
-  await app.register(deploymentRoutes, { prefix: '/api/v1/projects' });
-
-  // Evolution engine routes
-  await app.register(evolutionRoutes, { prefix: '/api/v1/projects' });
-
-  // GraphQL endpoint
+  // GraphQL endpoint (optional auth)
   await app.register(graphqlRoutes, { prefix: '/api/v1' });
 
-  // WebSocket handler for real-time canvas sync
-  await wsHandler(app);
+  // All project-scoped engine routes require authentication
+  await app.register(async (scoped) => {
+    scoped.addHook('preHandler', authenticate);
+
+    await scoped.register(projectRoutes);
+    await scoped.register(graphRoutes);
+    await scoped.register(agentRoutes);
+    await scoped.register(ruleRoutes);
+    await scoped.register(simulationRoutes);
+    await scoped.register(generationRoutes);
+    await scoped.register(deploymentRoutes);
+    await scoped.register(evolutionRoutes);
+  }, { prefix: '/api/v1/projects' });
 }

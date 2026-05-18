@@ -21,10 +21,10 @@ export function useExecutionLoop(projectId: string) {
     setLoading(true);
     setError(null);
     try {
-      const result = await apiClient<any>(`/api/v1/projects/${projectId}/execute-loop`, {
+      const result = await apiClient<ExecutionLoopStatus>(`/api/v1/projects/${projectId}/execute-loop`, {
         method: 'POST',
       });
-      setStatus(result.data);
+      setStatus(result);
     } catch (err) {
       setError((err as Error).message);
     } finally {

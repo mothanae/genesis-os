@@ -6,6 +6,13 @@ import { motion } from 'framer-motion';
 import { useEffect, useState } from 'react';
 import { apiClient } from '@/lib/api-client';
 
+interface ProjectInfo {
+  id: string;
+  name: string;
+  slug: string;
+  description: string | null;
+}
+
 interface ProjectOverview {
   graph: { nodes: number; edges: number; valid: boolean };
   agents: { total: number; active: number };
@@ -20,15 +27,44 @@ export default function ProjectOverviewPage() {
   const params = useParams();
   const projectId = params.projectId as string;
   const [overview, setOverview] = useState<ProjectOverview | null>(null);
+  const [project, setProject] = useState<ProjectInfo | null>(null);
+  const [editing, setEditing] = useState(false);
+  const [editName, setEditName] = useState('');
+  const [editDesc, setEditDesc] = useState('');
 
   useEffect(() => {
     async function load() {
       try {
-        const nodes = await apiClient<unknown[]>(`/api/v1/projects/${projectId}/graph/nodes`);
+        const [proj, nodes, edges, validation, agents, rules, violations] = await Promise.all([
+          apiClient<ProjectInfo>(`/api/v1/projects/${projectId}`).catch(() => null),
+          apiClient<unknown[]>(`/api/v1/projects/${projectId}/graph/nodes`).catch(() => []),
+          apiClient<unknown[]>(`/api/v1/projects/${projectId}/graph/edges`).catch(() => []),
+          apiClient<{ valid: boolean }>(`/api/v1/projects/${projectId}/graph/validate`).catch(() => ({ valid: true, errors: [], warnings: [] })),
+          apiClient<unknown[]>(`/api/v1/projects/${projectId}/agents`).catch(() => []),
+          apiClient<unknown[]>(`/api/v1/projects/${projectId}/rules`).catch(() => []),
+          apiClient<unknown[]>(`/api/v1/projects/${projectId}/rules/violations`).catch(() => []),
+        ]);
+
+        if (proj) {
+          setProject(proj);
+          setEditName(proj.name);
+          setEditDesc(proj.description ?? '');
+        }
+
         setOverview({
-          graph: { nodes: Array.isArray(nodes) ? nodes.length : 0, edges: 0, valid: true },
-          agents: { total: 0, active: 0 },
-          rules: { total: 0, violations: 0 },
+          graph: {
+            nodes: Array.isArray(nodes) ? nodes.length : 0,
+            edges: Array.isArray(edges) ? edges.length : 0,
+            valid: (validation as { valid?: boolean })?.valid ?? true,
+          },
+          agents: {
+            total: Array.isArray(agents) ? agents.length : 0,
+            active: 0,
+          },
+          rules: {
+            total: Array.isArray(rules) ? rules.length : 0,
+            violations: Array.isArray(violations) ? violations.filter((v: unknown) => !(v as { resolvedAt?: string })?.resolvedAt).length : 0,
+          },
           simulations: { total: 0, lastRunStatus: 'none' },
           generation: { lastGenFiles: 0, lastGenLines: 0 },
           deployment: { lastDeployModules: 0 },
@@ -38,6 +74,17 @@ export default function ProjectOverviewPage() {
     }
     load();
   }, [projectId]);
+
+  async function saveProject() {
+    try {
+      await apiClient(`/api/v1/projects/${projectId}`, {
+        method: 'PATCH',
+        body: { name: editName, description: editDesc },
+      });
+      setProject((p) => p ? { ...p, name: editName, description: editDesc } : null);
+      setEditing(false);
+    } catch { /* ignore */ }
+  }
 
   const layers = [
     { name: 'Graph Engine', desc: 'Visual architecture design', icon: '🔷', path: `/dashboard/projects/${projectId}/builder`, stat: `${overview?.graph.nodes ?? 0} nodes · ${overview?.graph.edges ?? 0} edges`, color: 'border-blue-400 bg-blue-50' },
@@ -54,10 +101,42 @@ export default function ProjectOverviewPage() {
     <div className="p-6 space-y-6">
       {/* Header */}
       <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }}>
-        <h1 className="text-3xl font-bold">Project Overview</h1>
-        <p className="text-sm text-gray-500 mt-1">
-          The graph is the operating system. The agents are the workforce. The runtime is the nervous system.
-        </p>
+        {project && (
+          <div className="mb-4">
+            {editing ? (
+              <div className="flex items-start gap-3">
+                <div className="flex-1 space-y-2">
+                  <input value={editName} onChange={(e) => setEditName(e.target.value)}
+                    className="text-3xl font-bold w-full border rounded px-3 py-1 bg-white" />
+                  <input value={editDesc} onChange={(e) => setEditDesc(e.target.value)}
+                    className="text-sm text-gray-500 w-full border rounded px-3 py-1 bg-white" placeholder="Project description" />
+                </div>
+                <div className="flex gap-2">
+                  <button onClick={saveProject} className="px-3 py-1 bg-blue-600 text-white rounded text-sm">Save</button>
+                  <button onClick={() => setEditing(false)} className="px-3 py-1 border rounded text-sm">Cancel</button>
+                </div>
+              </div>
+            ) : (
+              <div className="group cursor-pointer" onClick={() => setEditing(true)}>
+                <h1 className="text-3xl font-bold group-hover:text-blue-600 transition">
+                  {project.name}
+                  <span className="text-xs text-gray-300 ml-2 opacity-0 group-hover:opacity-100">✏️</span>
+                </h1>
+                <p className="text-sm text-gray-500 mt-1">
+                  {project.description ?? 'The graph is the operating system. The agents are the workforce. The runtime is the nervous system.'}
+                </p>
+              </div>
+            )}
+          </div>
+        )}
+        {!project && (
+          <>
+            <h1 className="text-3xl font-bold">Project Overview</h1>
+            <p className="text-sm text-gray-500 mt-1">
+              The graph is the operating system. The agents are the workforce. The runtime is the nervous system.
+            </p>
+          </>
+        )}
       </motion.div>
 
       {/* Execution Loop */}

@@ -176,6 +176,40 @@ function WorkspaceTab() {
 }
 
 function TokensTab() {
+  const [showToken, setShowToken] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  const token = typeof window !== 'undefined' ? localStorage.getItem('genesis_token') : null;
+
+  // Decode JWT payload (without verifying signature — just for display)
+  let tokenInfo: { sub?: string; email?: string; role?: string; exp?: number; iat?: number } | null = null;
+  if (token) {
+    try {
+      const payload = JSON.parse(atob(token.split('.')[1]!));
+      tokenInfo = payload;
+    } catch {
+      tokenInfo = null;
+    }
+  }
+
+  function copyToken() {
+    if (!token) return;
+    navigator.clipboard.writeText(token).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }).catch(() => {});
+  }
+
+  function formatExpiry(exp?: number): string {
+    if (!exp) return 'Unknown';
+    return new Date(exp * 1000).toLocaleString();
+  }
+
+  function isExpired(exp?: number): boolean {
+    if (!exp) return false;
+    return Date.now() > exp * 1000;
+  }
+
   return (
     <motion.div
       initial={{ opacity: 0, x: 10 }}
@@ -183,22 +217,83 @@ function TokensTab() {
       exit={{ opacity: 0, x: -10 }}
       className="space-y-4"
     >
+      {/* Session Token */}
+      <div className="border rounded-lg p-4">
+        <h2 className="text-sm font-semibold">Session Token</h2>
+        <p className="text-xs text-gray-500 mt-1">
+          Your current session JWT. This token is automatically attached to all API requests and WebSocket connections.
+        </p>
+
+        {tokenInfo ? (
+          <div className="mt-3 space-y-2">
+            <div className="grid grid-cols-2 gap-2 text-xs">
+              <div className="bg-gray-50 rounded p-2">
+                <span className="text-gray-500">User ID</span>
+                <div className="font-mono text-gray-700 truncate">{tokenInfo.sub ?? 'Unknown'}</div>
+              </div>
+              <div className="bg-gray-50 rounded p-2">
+                <span className="text-gray-500">Role</span>
+                <div className="font-medium text-gray-700">{tokenInfo.role ?? 'Unknown'}</div>
+              </div>
+              <div className="bg-gray-50 rounded p-2">
+                <span className="text-gray-500">Issued</span>
+                <div className="text-gray-700">{formatExpiry(tokenInfo.iat)}</div>
+              </div>
+              <div className="bg-gray-50 rounded p-2">
+                <span className="text-gray-500">Expires</span>
+                <div className={isExpired(tokenInfo.exp) ? 'text-red-600 font-medium' : 'text-gray-700'}>
+                  {formatExpiry(tokenInfo.exp)}
+                  {isExpired(tokenInfo.exp) && ' (expired)'}
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 mt-2">
+              <button
+                onClick={() => setShowToken(!showToken)}
+                className="text-xs text-blue-600 hover:underline"
+              >
+                {showToken ? 'Hide' : 'Show'} Token
+              </button>
+              <button
+                onClick={copyToken}
+                className="text-xs px-2 py-0.5 rounded border text-gray-600 hover:bg-gray-50"
+              >
+                {copied ? 'Copied!' : 'Copy'}
+              </button>
+            </div>
+
+            {showToken && (
+              <div className="bg-gray-900 text-green-400 text-xs p-2 rounded font-mono break-all">
+                {token}
+              </div>
+            )}
+          </div>
+        ) : (
+          <p className="text-xs text-gray-400 mt-3">No active session token found.</p>
+        )}
+      </div>
+
+      {/* API Keys */}
       <div className="border border-dashed rounded-lg p-6 text-center">
         <div className="text-3xl mb-2">🔑</div>
-        <h2 className="text-sm font-semibold">No API Tokens</h2>
-        <p className="text-xs text-gray-500 mt-1">
-          API tokens allow external services to authenticate with Genesis OS. Create one to enable CI/CD
-          integration, webhook endpoints, or programmatic access.
+        <h2 className="text-sm font-semibold">API Keys</h2>
+        <p className="text-xs text-gray-500 mt-1 max-w-md mx-auto">
+          Programmatic API keys for CI/CD pipelines, external services, and automation. API key management is coming soon.
         </p>
-        <button className="mt-3 rounded-lg border border-gray-300 px-4 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50">
-          Generate Token
+        <button
+          disabled
+          className="mt-3 rounded-lg border border-gray-200 px-4 py-1.5 text-sm font-medium text-gray-400 cursor-not-allowed"
+        >
+          Coming Soon
         </button>
       </div>
 
+      {/* Token Scopes Reference */}
       <div className="border rounded-lg p-4">
         <h2 className="text-sm font-semibold">Token Scopes</h2>
         <p className="text-xs text-gray-500 mt-1">
-          Available scopes for generated tokens. Select specific permissions when creating a token.
+          Reference for available API scopes. These will be selectable when creating API keys.
         </p>
         <div className="mt-3 grid grid-cols-2 gap-2">
           {['read:projects', 'write:projects', 'read:graph', 'write:graph', 'read:agents', 'execute:agents', 'read:simulations', 'run:simulations'].map(

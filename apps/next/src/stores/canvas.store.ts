@@ -114,7 +114,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       nodes: prev.nodes,
       edges: prev.edges,
       undoStack: state.undoStack.slice(0, -1),
-      redoStack: [{ nodes: [...nodes], edges: [...edges] }, ...state.redoStack],
+      redoStack: [{ nodes: [...nodes], edges: [...edges] }, ...state.redoStack].slice(0, 50),
     }));
   },
 
@@ -126,7 +126,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       nodes: next.nodes,
       edges: next.edges,
       redoStack: state.redoStack.slice(1),
-      undoStack: [...state.undoStack, { nodes: [...nodes], edges: [...edges] }],
+      undoStack: [...state.undoStack, { nodes: [...nodes], edges: [...edges] }].slice(-50),
     }));
   },
 

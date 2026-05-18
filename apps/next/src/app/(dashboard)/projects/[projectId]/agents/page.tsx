@@ -17,13 +17,54 @@ export default function AgentsPage() {
   const [agents, setAgents] = useState<Agent[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [importing, setImporting] = useState(false);
 
   useEffect(() => {
-    apiClient<Agent[]>(`/api/v1/projects/${projectId}/agents`)
-      .then((data) => setAgents(data as Agent[]))
-      .catch((e) => setError(e.message))
-      .finally(() => setLoading(false));
+    loadAgents();
   }, [projectId]);
+
+  async function loadAgents() {
+    setLoading(true);
+    try {
+      const data = await apiClient<Agent[]>(`/api/v1/projects/${projectId}/agents`);
+      setAgents(Array.isArray(data) ? data : []);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function importDefaultAgents() {
+    setImporting(true);
+    try {
+      const defaults = getDefaultAgents();
+      const created: Agent[] = [];
+      for (const agent of defaults) {
+        try {
+          const result = await apiClient<Agent>(`/api/v1/projects/${projectId}/agents`, {
+            method: 'POST',
+            body: {
+              name: agent.name,
+              description: agent.description,
+              graphDefinition: {
+                nodes: [{ id: 'entry', type: 'input', label: 'Start', config: {} }],
+                edges: [],
+              },
+              toolsConfig: [],
+              modelConfig: { temperature: 0.7 },
+            },
+          });
+          created.push(result);
+        } catch { /* skip duplicates */ }
+      }
+      setAgents((prev) => [...prev, ...created]);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setImporting(false);
+    }
+  }
 
   const agentEmojis: Record<string, string> = {
     plan: '🧠',
@@ -40,8 +81,21 @@ export default function AgentsPage() {
 
   return (
     <div className="p-6">
-      <h1 className="text-2xl font-bold">Agent Orchestration</h1>
-      <p className="text-sm text-gray-500 mt-1">Project: {projectId as string}</p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold">Agent Orchestration</h1>
+          <p className="text-sm text-gray-500 mt-1">Project: {projectId as string}</p>
+        </div>
+        {agents.length === 0 && (
+          <button
+            onClick={importDefaultAgents}
+            disabled={importing}
+            className="px-4 py-1.5 bg-purple-600 text-white rounded text-sm hover:bg-purple-700 disabled:opacity-50"
+          >
+            {importing ? 'Importing...' : 'Import Default Agents'}
+          </button>
+        )}
+      </div>
 
       {loading && (
         <div className="flex items-center gap-2 text-gray-500 mt-6">
@@ -56,9 +110,9 @@ export default function AgentsPage() {
         </div>
       )}
 
-      {!loading && !error && (
+      {!loading && !error && agents.length > 0 && (
         <div className="mt-6 grid grid-cols-2 gap-4">
-          {(agents.length > 0 ? agents : getDefaultAgents()).map((agent) => (
+          {agents.map((agent) => (
             <div
               key={agent.id}
               className="border rounded-lg p-4 hover:shadow-md transition group"
@@ -85,6 +139,16 @@ export default function AgentsPage() {
               </div>
             </div>
           ))}
+        </div>
+      )}
+
+      {!loading && !error && agents.length === 0 && (
+        <div className="mt-12 text-center">
+          <div className="text-4xl mb-3">🤖</div>
+          <p className="text-gray-500 text-sm mb-4">No agents configured for this project.</p>
+          <p className="text-gray-400 text-xs">
+            Click "Import Default Agents" to add standard architecture agents (planner, frontend, backend, database, API, infra, validation, simulation, deployment, documentation).
+          </p>
         </div>
       )}
     </div>

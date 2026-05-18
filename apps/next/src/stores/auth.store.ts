@@ -14,7 +14,7 @@ interface AuthState {
   login: (email: string, password: string) => Promise<void>;
   register: (email: string, password: string, displayName: string) => Promise<void>;
   logout: () => Promise<void>;
-  restoreSession: () => void;
+  restoreSession: () => Promise<void>;
   refresh: () => Promise<void>;
 }
 
@@ -106,7 +106,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     });
   },
 
-  restoreSession: () => {
+  restoreSession: async () => {
     const token = localStorage.getItem(TOKEN_KEY);
     const rf = localStorage.getItem(REFRESH_KEY);
 
@@ -123,7 +123,18 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       return;
     }
 
-    set({ token, refreshToken: rf, isAuthenticated: true, isLoading: false });
+    set({ token, refreshToken: rf, isAuthenticated: true, isLoading: true });
+
+    // Fetch user profile to restore full session
+    try {
+      const user = await apiClient<User>('/api/v1/auth/me', { method: 'GET' });
+      set({ user, isLoading: false });
+    } catch {
+      // Token may be invalid — clear session
+      localStorage.removeItem(TOKEN_KEY);
+      localStorage.removeItem(REFRESH_KEY);
+      set({ user: null, token: null, refreshToken: null, isAuthenticated: false, isLoading: false });
+    }
   },
 
   refresh: async () => {

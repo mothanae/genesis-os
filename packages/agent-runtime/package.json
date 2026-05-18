@@ -21,10 +21,12 @@
   },
   "dependencies": {
     "@genesis-1/database": "workspace:*",
+    "@genesis-1/deployment-engine": "workspace:*",
     "@genesis-1/event-bus": "workspace:*",
     "@genesis-1/graph-engine": "workspace:*",
     "@genesis-1/rule-engine": "workspace:*",
-    "@genesis-1/shared": "workspace:*"
+    "@genesis-1/shared": "workspace:*",
+    "@genesis-1/simulation-engine": "workspace:*"
   },
   "devDependencies": {
     "drizzle-orm": "^0.33.0",

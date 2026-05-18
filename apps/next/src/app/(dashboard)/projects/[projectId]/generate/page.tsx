@@ -21,6 +21,12 @@ interface GenerationResult {
     languages: string[];
     durationMs: number;
   };
+  persisted?: {
+    written: number;
+    skipped: number;
+    failed: number;
+    failures: Array<{ path: string; error: string }>;
+  };
 }
 
 const STACK_OPTIONS = [
@@ -37,6 +43,7 @@ const STACK_OPTIONS = [
 export default function GeneratePage() {
   const { projectId } = useParams();
   const [stack, setStack] = useState('nodejs');
+  const [persist, setPersist] = useState(false);
   const [result, setResult] = useState<GenerationResult | null>(null);
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -48,7 +55,7 @@ export default function GeneratePage() {
     try {
       const r = await apiClient<GenerationResult>(`/api/v1/projects/${projectId}/generate`, {
         method: 'POST',
-        body: { targetStack: stack },
+        body: { targetStack: stack, persist },
       });
       setResult(r);
     } catch (e) {
@@ -87,6 +94,15 @@ export default function GeneratePage() {
             </option>
           ))}
         </select>
+        <label className="flex items-center gap-2 text-sm cursor-pointer">
+          <input
+            type="checkbox"
+            checked={persist}
+            onChange={(e) => setPersist(e.target.checked)}
+            className="rounded"
+          />
+          Write to disk
+        </label>
         <button
           onClick={handleGenerate}
           disabled={generating}
@@ -132,6 +148,32 @@ export default function GeneratePage() {
               </span>
             ))}
           </div>
+
+          {/* Persist results */}
+          {result.persisted && (
+            <div className="grid grid-cols-3 gap-3">
+              <div className="bg-white border rounded-lg p-3 text-center">
+                <div className="text-2xl font-bold text-green-600">{result.persisted.written}</div>
+                <div className="text-xs text-gray-500">Files Written</div>
+              </div>
+              <div className="bg-white border rounded-lg p-3 text-center">
+                <div className="text-2xl font-bold text-yellow-600">{result.persisted.skipped}</div>
+                <div className="text-xs text-gray-500">Skipped</div>
+              </div>
+              <div className="bg-white border rounded-lg p-3 text-center">
+                <div className="text-2xl font-bold text-red-600">{result.persisted.failed}</div>
+                <div className="text-xs text-gray-500">Failed</div>
+              </div>
+            </div>
+          )}
+          {result.persisted && result.persisted.failures.length > 0 && (
+            <div className="rounded-lg bg-red-50 border border-red-200 p-3">
+              <h3 className="text-sm font-semibold text-red-700 mb-1">Write Failures</h3>
+              {result.persisted.failures.map((f, i) => (
+                <p key={i} className="text-xs text-red-600">{f.path}: {f.error}</p>
+              ))}
+            </div>
+          )}
 
           {/* Errors */}
           {result.errors.length > 0 && (

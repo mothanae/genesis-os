@@ -1,36 +1,67 @@
 import type { FastifyInstance } from 'fastify';
+import { generateCodeSchema, executeLoopSchema } from '@genesis-1/shared/schemas';
 
 export async function generationRoutes(app: FastifyInstance): Promise<void> {
   // Generate code from graph
   app.post('/:projectId/generate', async (request, reply) => {
     const { projectId } = request.params as { projectId: string };
-    const body = request.body as { targetStack?: string; outputDir?: string; options?: Record<string, unknown> };
+    const result = generateCodeSchema.safeParse(request.body);
+    if (!result.success) {
+      return reply.status(422).send({
+        success: false,
+        error: 'Validation error',
+        details: result.error.flatten(),
+      });
+    }
 
-    const result = await app.generationEngine.generate({
-      projectId,
-      targetStack: (body.targetStack as 'react' | 'nextjs' | 'nodejs') ?? 'nodejs',
-      outputDir: body.outputDir ?? `generated/${projectId}`,
-      options: body.options ?? {},
-    });
+    const { targetStack, outputDir: bodyOutputDir, persist, options } = result.data;
+    const outputDir = bodyOutputDir ?? `generated/${projectId}`;
 
-    return reply.send({
-      success: result.success,
-      data: {
-        modules: result.modules.map((m) => ({
-          path: m.path,
-          language: m.language,
-          type: m.type,
-          content: m.content.slice(0, 500) + (m.content.length > 500 ? '...' : ''),
-        })),
-        stats: result.stats,
-        errors: result.errors,
-      },
-    });
+    const genResult = persist
+      ? await app.generationEngine.generateAndPersist({
+          projectId,
+          targetStack,
+          outputDir,
+          options,
+        })
+      : await app.generationEngine.generate({
+          projectId,
+          targetStack,
+          outputDir,
+          options,
+        });
+
+    const response: Record<string, unknown> = {
+      modules: genResult.modules.map((m) => ({
+        path: m.path,
+        language: m.language,
+        type: m.type,
+        content: m.content,
+      })),
+      stats: genResult.stats,
+      errors: genResult.errors,
+    };
+
+    if ('persisted' in genResult) {
+      response.persisted = genResult.persisted;
+    }
+
+    return reply.send({ success: genResult.success, data: response });
   });
 
   // Execute the full execution loop
   app.post('/:projectId/execute-loop', async (request, reply) => {
     const { projectId } = request.params as { projectId: string };
+    const bodyResult = executeLoopSchema.safeParse(request.body);
+    if (!bodyResult.success) {
+      return reply.status(422).send({
+        success: false,
+        error: 'Validation error',
+        details: bodyResult.error.flatten(),
+      });
+    }
+
+    const { targetStack, options } = bodyResult.data;
     const userId = (request.headers['x-user-id'] as string) ?? 'anonymous';
 
     // Step 1: Validate topology
@@ -42,12 +73,12 @@ export async function generationRoutes(app: FastifyInstance): Promise<void> {
     // Step 3: Execute plan
     const results = await app.orchestrator.executePlan(projectId, userId);
 
-    // Step 4: Generate code
-    const generation = await app.generationEngine.generate({
+    // Step 4: Generate code and persist to disk
+    const generation = await app.generationEngine.generateAndPersist({
       projectId,
-      targetStack: 'nodejs',
+      targetStack,
       outputDir: `generated/${projectId}`,
-      options: {},
+      options,
     });
 
     // Step 5: Generate deployment artifacts
@@ -59,13 +90,18 @@ export async function generationRoutes(app: FastifyInstance): Promise<void> {
       monitoring: { prometheus: true, grafana: true, alerting: true },
     });
 
-    // Step 6: Evolution insights
-    const evolution = await app.evolutionEngine.evolve({
-      projectId,
-      enableSelfHealing: true,
-      enableAutoUpgrade: false,
-      enableInsights: true,
-    });
+    // Step 6: Evolution insights (best-effort — requires snapshots table)
+    let evolution = { insights: [] as unknown[], appliedFixes: [] as unknown[] };
+    try {
+      evolution = await app.evolutionEngine.evolve({
+        projectId,
+        enableSelfHealing: true,
+        enableAutoUpgrade: false,
+        enableInsights: true,
+      });
+    } catch (err) {
+      app.log.warn({ err }, 'Evolution step failed (may need migrations)');
+    }
 
     return reply.send({
       success: true,
@@ -73,7 +109,11 @@ export async function generationRoutes(app: FastifyInstance): Promise<void> {
         topology: { valid: topology.valid, errors: topology.errors.length, warnings: topology.warnings.length },
         plan: { taskCount: plan.length },
         execution: results.map((r) => ({ type: r.type, status: r.status })),
-        generation: { files: generation.stats.totalFiles, lines: generation.stats.totalLines },
+        generation: {
+          files: generation.stats.totalFiles,
+          lines: generation.stats.totalLines,
+          persisted: generation.persisted,
+        },
         deployment: { modules: deployment.modules.length },
         evolution: { insights: evolution.insights.length, fixes: evolution.appliedFixes.length },
       },

@@ -1,5 +1,6 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { AuthService } from '../services/auth.service';
+import type { ApiKeyService } from '../services/api-key.service';
 import type { JwtPayload } from '@genesis-1/shared';
 
 declare module 'fastify' {
@@ -8,6 +9,7 @@ declare module 'fastify' {
   }
   interface FastifyInstance {
     authService: AuthService;
+    apiKeyService: ApiKeyService;
   }
 }
 
@@ -17,15 +19,24 @@ export async function authPlugin(app: FastifyInstance): Promise<void> {
   app.decorateRequest('user', null);
 }
 
+// ── JWT Bearer Auth ─────────────────────────────────────────
+
 export async function authenticate(
   request: FastifyRequest,
   reply: FastifyReply,
 ): Promise<void> {
+  // Try API key first, then JWT Bearer
+  const apiKeyHeader = request.headers['x-api-key'] as string | undefined;
+  if (apiKeyHeader) {
+    await authenticateApiKey(request, reply);
+    if (!reply.sent) return;
+  }
+
   const header = request.headers.authorization;
   if (!header) {
     return reply.status(401).send({
       success: false,
-      error: 'Missing authorization header',
+      error: 'Missing authorization header or X-API-Key',
     });
   }
 
@@ -48,6 +59,53 @@ export async function authenticate(
     });
   }
 }
+
+// ── API Key Auth ────────────────────────────────────────────
+
+/**
+ * Authenticate via X-API-Key header.
+ * Verifies the key against the database and sets request.user with the key owner's identity.
+ * Used by CI/CD pipelines and external services.
+ */
+export async function authenticateApiKey(
+  request: FastifyRequest,
+  reply: FastifyReply,
+): Promise<void> {
+  const apiKey = request.headers['x-api-key'] as string | undefined;
+  if (!apiKey) {
+    return reply.status(401).send({
+      success: false,
+      error: 'Missing X-API-Key header',
+    });
+  }
+
+  const result = await request.server.apiKeyService.verifyApiKey(apiKey);
+  if (!result) {
+    return reply.status(401).send({
+      success: false,
+      error: 'Invalid or expired API key',
+    });
+  }
+
+  // Look up user to get role for authorization checks
+  try {
+    const user = await request.server.authService.getMe(result.userId);
+    request.user = {
+      sub: user.id,
+      email: user.email,
+      role: user.role,
+      iat: Math.floor(Date.now() / 1000),
+      exp: Math.floor(Date.now() / 1000) + 3600,
+    };
+  } catch {
+    return reply.status(401).send({
+      success: false,
+      error: 'API key owner not found or blocked',
+    });
+  }
+}
+
+// ── Role-Based Guards ───────────────────────────────────────
 
 export async function requireAdmin(
   request: FastifyRequest,
@@ -82,10 +140,34 @@ export async function requireStaff(
   }
 }
 
+// ── Optional Auth ───────────────────────────────────────────
+
 export async function optionalAuth(
   request: FastifyRequest,
   _reply: FastifyReply,
 ): Promise<void> {
+  // Try API key first
+  const apiKeyHeader = request.headers['x-api-key'] as string | undefined;
+  if (apiKeyHeader) {
+    try {
+      const result = await request.server.apiKeyService.verifyApiKey(apiKeyHeader);
+      if (result) {
+        const user = await request.server.authService.getMe(result.userId);
+        request.user = {
+          sub: user.id,
+          email: user.email,
+          role: user.role,
+          iat: Math.floor(Date.now() / 1000),
+          exp: Math.floor(Date.now() / 1000) + 3600,
+        };
+        return;
+      }
+    } catch {
+      // Continue to JWT attempt
+    }
+  }
+
+  // Try JWT Bearer
   const header = request.headers.authorization;
   if (!header) return;
 

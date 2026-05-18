@@ -1,26 +1,30 @@
 import type { FastifyInstance } from 'fastify';
+import { evolveSchema } from '@genesis-1/shared/schemas';
 
 export async function evolutionRoutes(app: FastifyInstance): Promise<void> {
   // Analyze and evolve the architecture
   app.post('/:projectId/evolve', async (request, reply) => {
     const { projectId } = request.params as { projectId: string };
-    const body = request.body as {
-      enableSelfHealing?: boolean;
-      enableAutoUpgrade?: boolean;
-      enableInsights?: boolean;
-    };
+    const result = evolveSchema.safeParse(request.body);
+    if (!result.success) {
+      return reply.status(422).send({
+        success: false,
+        error: 'Validation error',
+        details: result.error.flatten(),
+      });
+    }
 
-    const result = await app.evolutionEngine.evolve({
+    const evolveResult = await app.evolutionEngine.evolve({
       projectId,
-      enableSelfHealing: body.enableSelfHealing ?? true,
-      enableAutoUpgrade: body.enableAutoUpgrade ?? false,
-      enableInsights: body.enableInsights ?? true,
+      enableSelfHealing: result.data.enableSelfHealing,
+      enableAutoUpgrade: result.data.enableAutoUpgrade,
+      enableInsights: result.data.enableInsights,
     });
 
     return reply.send({
       success: true,
       data: {
-        insights: result.insights.map((i) => ({
+        insights: evolveResult.insights.map((i) => ({
           type: i.type,
           title: i.title,
           severity: i.severity,
@@ -29,7 +33,7 @@ export async function evolutionRoutes(app: FastifyInstance): Promise<void> {
           autoFixAvailable: i.autoFixAvailable,
           confidence: i.confidence,
         })),
-        upgradePaths: result.upgradePaths.map((p) => ({
+        upgradePaths: evolveResult.upgradePaths.map((p) => ({
           name: p.name,
           description: p.description,
           steps: p.steps.length,
@@ -37,16 +41,16 @@ export async function evolutionRoutes(app: FastifyInstance): Promise<void> {
           risk: p.risk,
           automated: p.automated,
         })),
-        appliedFixes: result.appliedFixes.map((f) => ({
+        appliedFixes: evolveResult.appliedFixes.map((f) => ({
           type: f.type,
           description: f.description,
           success: f.success,
         })),
-        templateMatches: result.templateMatches.map((t) => ({
+        templateMatches: evolveResult.templateMatches.map((t) => ({
           templateName: t.templateName,
           matchScore: t.matchScore,
         })),
-        snapshotId: result.snapshotId,
+        snapshotId: evolveResult.snapshotId,
       },
     });
   });

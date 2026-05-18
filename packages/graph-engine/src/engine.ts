@@ -593,47 +593,52 @@ export class GraphEngine {
   // ═══════════════════════════════════════════════════════════════
 
   async detectCycles(projectId: string): Promise<CycleResult[]> {
-    const result = await this.config.db.execute<{
-      path: string[];
-      node_ids: string[];
-      edge_ids: string[];
-    }>(
-      sql`WITH RECURSIVE cycle_search AS (
-          SELECT source, target,
-                 ARRAY[source] AS path,
-                 ARRAY[source] AS node_ids,
-                 ARRAY[id::text] AS edge_ids,
-                 false AS has_cycle
-          FROM graph.edges WHERE project_id = ${projectId}
-          UNION ALL
-          SELECT e.source, e.target,
-                 cs.path || e.source,
-                 cs.node_ids || e.source,
-                 cs.edge_ids || e.id::text,
-                 e.target = ANY(cs.node_ids)
-          FROM graph.edges e
-          JOIN cycle_search cs ON e.source = cs.target
-          WHERE NOT cs.has_cycle AND array_length(cs.node_ids, 1) < 50
-        )
-        SELECT DISTINCT path, node_ids, edge_ids FROM cycle_search WHERE has_cycle`,
-    );
+    try {
+      const result = await this.config.db.execute<{
+        path: string[];
+        node_ids: string[];
+        edge_ids: string[];
+      }>(
+        sql`WITH RECURSIVE cycle_search AS (
+            SELECT source, target,
+                   ARRAY[source] AS path,
+                   ARRAY[source] AS node_ids,
+                   ARRAY[id::text] AS edge_ids,
+                   false AS has_cycle
+            FROM graph.edges WHERE project_id = ${projectId}
+            UNION ALL
+            SELECT e.source, e.target,
+                   cs.path || e.source,
+                   cs.node_ids || e.source,
+                   cs.edge_ids || e.id::text,
+                   e.target = ANY(cs.node_ids)
+            FROM graph.edges e
+            JOIN cycle_search cs ON e.source = cs.target
+            WHERE NOT cs.has_cycle AND array_length(cs.node_ids, 1) < 50
+          )
+          SELECT DISTINCT path, node_ids, edge_ids FROM cycle_search WHERE has_cycle`,
+      );
 
-    const cycles: CycleResult[] = ((result as any).rows as Array<{
-      path: string[];
-      node_ids: string[];
-      edge_ids: string[];
-    }>).map((row) => ({
-      path: row.path,
-      nodeIds: row.node_ids,
-      edgeIds: row.edge_ids,
-      length: row.node_ids.length,
-    }));
+      const rows = Array.isArray((result as any)?.rows) ? (result as any).rows as Array<{
+        path: string[];
+        node_ids: string[];
+        edge_ids: string[];
+      }> : [];
+      const cycles: CycleResult[] = rows.map((row) => ({
+        path: row.path,
+        nodeIds: row.node_ids,
+        edgeIds: row.edge_ids,
+        length: row.node_ids.length,
+      }));
 
-    if (cycles.length > 0) {
-      await this.publish(EventType.GraphCycleDetected, projectId, { cycleCount: cycles.length });
+      if (cycles.length > 0) {
+        await this.publish(EventType.GraphCycleDetected, projectId, { cycleCount: cycles.length });
+      }
+
+      return cycles;
+    } catch {
+      return [];
     }
-
-    return cycles;
   }
 
   async impactAnalysis(nodeId: string): Promise<ImpactAnalysisResult> {

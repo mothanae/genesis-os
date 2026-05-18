@@ -7,7 +7,7 @@ export const createSimulationSchema = z.object({
   eventGenerators: z
     .array(
       z.object({
-        type: z.enum(['traffic', 'failure', 'scaling', 'dependency', 'custom']),
+        type: z.enum(['http_traffic', 'db_queries', 'events', 'auth', 'background_jobs', 'websocket']),
         config: z.record(z.unknown()).default({}),
         enabled: z.boolean().default(true),
       }),

@@ -4,3 +4,6 @@ export * from './graph.schema';
 export * from './agent.schema';
 export * from './rule.schema';
 export * from './simulation.schema';
+export * from './generation.schema';
+export * from './deployment.schema';
+export * from './evolution.schema';

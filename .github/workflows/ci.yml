@@ -44,6 +44,7 @@ jobs:
       DATABASE_URL: postgres://genesis1:genesis1_test@localhost:5432/genesis1_test
       REDIS_URL: redis://localhost:6379
       JWT_SECRET: ci-test-secret-at-least-32-characters-long
+      NODE_ENV: test
       SKIP_ENV_VALIDATION: true
 
     steps:
@@ -59,7 +60,15 @@ jobs:
           cache: 'pnpm'
 
       - run: pnpm install --frozen-lockfile
-      - run: pnpm lint
-      - run: pnpm typecheck
-      - run: pnpm test
-      - run: pnpm build
+
+      - name: Lint (format check)
+        run: pnpm format:check
+
+      - name: Type check
+        run: pnpm typecheck
+
+      - name: Run tests
+        run: pnpm test
+
+      - name: Build
+        run: pnpm build

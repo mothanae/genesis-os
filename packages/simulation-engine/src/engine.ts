@@ -320,6 +320,86 @@ export class SimulationEngine {
     };
   }
 
+  /**
+   * Build a typed simulation state from graph topology.
+   * Each graph node type maps to a simulation entity with sensible defaults.
+   */
+  initStateFromGraph(
+    nodes: Array<{ id: string; type: string; name: string; runtime?: unknown }>,
+  ): SimState {
+    const state: SimState = {
+      clock: 0,
+      services: new Map(),
+      databases: new Map(),
+      queues: new Map(),
+      caches: new Map(),
+      network: { totalRequests: 0, activeConnections: 0, bandwidthMbps: 1000, packetLossPercent: 0, latencyMs: 1 },
+      events: [],
+      metrics: { requestCounts: [], latencyBuckets: new Map(), errorRateTimeline: [], throughputTimeline: [], availabilityTimeline: [], cpuTimeline: [], memoryTimeline: [] },
+    };
+
+    for (const node of nodes) {
+      const rt = (node.runtime as Record<string, unknown>) ?? {};
+      switch (node.type) {
+        case 'service':
+        case 'function':
+        case 'api_gateway':
+        case 'container':
+        case 'pod':
+          state.services.set(node.id, {
+            id: node.id,
+            name: node.name,
+            replicas: (rt.replicas as number) ?? 1,
+            cpuUtilization: 30,
+            memoryUtilization: 40,
+            requestCount: 0,
+            errorCount: 0,
+            avgLatencyMs: 5,
+            status: 'healthy',
+            lastHealthCheck: Date.now(),
+          });
+          break;
+        case 'database':
+          state.databases.set(node.id, {
+            id: node.id,
+            name: node.name,
+            activeConnections: 0,
+            maxConnections: (rt.maxConnections as number) ?? 100,
+            queryLatencyMs: 2,
+            writeThroughput: 0,
+            readThroughput: 0,
+            diskUsagePercent: 30,
+            replicationLagMs: 0,
+          });
+          break;
+        case 'queue':
+        case 'event_store':
+          state.queues.set(node.id, {
+            id: node.id,
+            name: node.name,
+            queueDepth: 0,
+            processingRate: 0,
+            consumerCount: 1,
+            avgMessageLatencyMs: 10,
+            dlqDepth: 0,
+          });
+          break;
+        case 'cache':
+          state.caches.set(node.id, {
+            id: node.id,
+            name: node.name,
+            hitRate: 95,
+            evictionRate: 0,
+            memoryUsedMB: 64,
+            keyCount: 1000,
+          });
+          break;
+      }
+    }
+
+    return state;
+  }
+
   private pct(sorted: number[], p: number): number {
     if (sorted.length === 0) return 0;
     const idx = Math.ceil((p / 100) * sorted.length) - 1;

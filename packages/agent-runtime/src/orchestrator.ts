@@ -2,6 +2,8 @@ import type { DatabaseClient } from '@genesis-1/database';
 import type { EventPublisher } from '@genesis-1/event-bus';
 import type { GraphEngine } from '@genesis-1/graph-engine';
 import type { RuleEngine } from '@genesis-1/rule-engine';
+import type { SimulationEngine } from '@genesis-1/simulation-engine';
+import type { DeploymentEngine } from '@genesis-1/deployment-engine';
 import type { LLMProvider } from './providers/ollama';
 import { EventType } from '@genesis-1/shared';
 
@@ -65,6 +67,8 @@ export interface OrchestratorConfig {
   eventBus: EventPublisher;
   graphEngine: GraphEngine;
   ruleEngine: RuleEngine;
+  simulationEngine?: SimulationEngine;
+  deploymentEngine?: DeploymentEngine;
   llmProvider?: LLMProvider;
   maxConcurrentTasks?: number;
   maxRetries?: number;
@@ -367,7 +371,7 @@ export class AgentOrchestrator {
         metadata: { version: 1, priority: 'normal' },
       });
 
-      // Execute the agent's work (stub — actual implementation ties to LLM/generation)
+      // Dispatch to the appropriate agent implementation
       const output = await this.dispatchAgent(agent, task, projectId);
 
       task.status = 'completed';
@@ -541,12 +545,31 @@ export class AgentOrchestrator {
       columns: this.inferColumnsFromNode(n),
     }));
 
+    // Generate actual Drizzle schema files via LLM when available
+    const generatedFiles: Array<{ path: string; content: string }> = [];
+    if (this.config.llmProvider && schemas.length > 0) {
+      for (const schema of schemas.slice(0, 3)) {
+        const aiSchema = await this.withLLM(
+          `Generate a Drizzle ORM PostgreSQL schema for table "${schema.tableName}" with these columns: ${JSON.stringify(schema.columns)}. Output ONLY the TypeScript code, no explanation.`,
+          'You are a database architect. Generate clean Drizzle ORM schema code with pgTable, proper column types (uuid, text, timestamp, jsonb, integer), and indexes. Output raw TypeScript only.',
+        );
+        if (aiSchema) {
+          generatedFiles.push({
+            path: `database/schema/${schema.tableName}.ts`,
+            content: aiSchema,
+          });
+        }
+      }
+    }
+
     return {
       schemasGenerated: schemas.length,
       schemas,
       migrationsGenerated: schemas.length > 0,
       ormUsed: 'drizzle',
       targetDialect: 'postgresql',
+      generatedFiles,
+      llmGenerated: generatedFiles.length,
     };
   }
 
@@ -572,11 +595,30 @@ export class AgentOrchestrator {
       };
     });
 
+    // Generate actual service files via LLM when available
+    const generatedFiles: Array<{ path: string; content: string }> = [];
+    if (this.config.llmProvider && serviceSpecs.length > 0) {
+      for (const svc of serviceSpecs.slice(0, 3)) {
+        const aiService = await this.withLLM(
+          `Generate a Fastify TypeScript service for "${svc.name}" with these dependencies: ${svc.dependencies.join(', ') || 'none'}. Include Zod validation, health check route, and CRUD repository pattern. Output ONLY the TypeScript code.`,
+          'You are a backend architect. Generate clean Fastify TypeScript service code with proper error handling, Zod validation schemas, and a repository pattern. Output raw TypeScript only.',
+        );
+        if (aiService) {
+          generatedFiles.push({
+            path: `services/${svc.name.toLowerCase().replace(/\s+/g, '-')}.ts`,
+            content: aiService,
+          });
+        }
+      }
+    }
+
     return {
       servicesGenerated: serviceSpecs.length,
       services: serviceSpecs,
       routesGenerated: services.length > 0,
       middlewareGenerated: services.length > 0,
+      generatedFiles,
+      llmGenerated: generatedFiles.length,
     };
   }
 
@@ -599,11 +641,32 @@ export class AgentOrchestrator {
       };
     });
 
+    // Generate OpenAPI spec via LLM when available
+    const generatedFiles: Array<{ path: string; content: string }> = [];
+    if (this.config.llmProvider && endpoints.length > 0) {
+      const endpointSummary = endpoints
+        .slice(0, 10)
+        .map((ep) => `${ep.method} ${ep.path} (${ep.type}) -> ${ep.connectedServices.join(', ') || 'none'}`)
+        .join('\n');
+      const aiOpenApi = await this.withLLM(
+        `Generate an OpenAPI 3.1.0 spec for these endpoints:\n${endpointSummary}\n\nInclude proper request/response schemas, error responses, and security definitions (Bearer JWT). Output ONLY the YAML.`,
+        'You are an API architect. Generate clean OpenAPI 3.1.0 YAML specs with proper schemas, security definitions, and error responses. Output raw YAML only.',
+      );
+      if (aiOpenApi) {
+        generatedFiles.push({
+          path: 'api/openapi.yaml',
+          content: aiOpenApi,
+        });
+      }
+    }
+
     return {
       endpointsGenerated: endpoints.length,
       endpoints,
       openApiGenerated: endpoints.length > 0,
       specVersion: '3.1.0',
+      generatedFiles,
+      llmGenerated: generatedFiles.length,
     };
   }
 
@@ -625,12 +688,31 @@ export class AgentOrchestrator {
       };
     });
 
-    // Build routing tree from page nodes
     const pages = components.filter((c) => c.type === 'page');
     const routeTree = pages.map((p) => ({
       path: p.route ?? '/',
       component: p.name,
     }));
+
+    // Generate actual React components via LLM when available
+    const generatedFiles: Array<{ path: string; content: string }> = [];
+    if (this.config.llmProvider && components.length > 0) {
+      for (const comp of components.slice(0, 3)) {
+        const dataDeps = comp.dataDependencies.length > 0
+          ? `\nData dependencies: ${comp.dataDependencies.join(', ')}. Fetch data from these sources.`
+          : '';
+        const aiComponent = await this.withLLM(
+          `Generate a React/Next.js ${comp.type} component named "${comp.name}".${dataDeps}\nUse TypeScript, Tailwind CSS, with loading/error/empty states. Output ONLY the TSX code.`,
+          'You are a senior React developer. Generate clean, production-ready React components with TypeScript and Tailwind CSS. Include proper state management, error boundaries, and accessibility. Output raw TSX only.',
+        );
+        if (aiComponent) {
+          generatedFiles.push({
+            path: `components/${comp.name.toLowerCase().replace(/\s+/g, '-')}.tsx`,
+            content: aiComponent,
+          });
+        }
+      }
+    }
 
     return {
       componentsGenerated: components.length,
@@ -638,6 +720,8 @@ export class AgentOrchestrator {
       pagesGenerated: pages.length,
       routeTree,
       routingConfigured: pages.length > 0,
+      generatedFiles,
+      llmGenerated: generatedFiles.length,
     };
   }
 
@@ -706,28 +790,51 @@ export class AgentOrchestrator {
     const serviceCount = nodes.filter((n) => ['service', 'function', 'container'].includes(n.type)).length;
     const dbCount = nodes.filter((n) => n.type === 'database').length;
 
-    return {
-      simulationConfig: {
-        projectId,
-        serviceCount,
-        databaseCount: dbCount,
-        suggestedDuration: 60000,
-        suggestedTickInterval: 100,
-        generators: [
-          { type: 'http_traffic', enabled: serviceCount > 0 },
-          { type: 'db_queries', enabled: dbCount > 0 },
-          { type: 'events', enabled: true },
-          { type: 'auth', enabled: true },
-          { type: 'background_jobs', enabled: serviceCount > 0 },
-          { type: 'websocket', enabled: serviceCount > 0 },
-        ],
-        loadProfile: {
-          type: 'ramp',
-          baseRps: 10,
-          peakRps: serviceCount * 50,
-          rampDurationTicks: 100,
-        },
+    const simulationConfig = {
+      projectId,
+      serviceCount,
+      databaseCount: dbCount,
+      suggestedDuration: 60000,
+      suggestedTickInterval: 100,
+      generators: [
+        { type: 'http_traffic', enabled: serviceCount > 0 },
+        { type: 'db_queries', enabled: dbCount > 0 },
+        { type: 'events', enabled: true },
+        { type: 'auth', enabled: true },
+        { type: 'background_jobs', enabled: serviceCount > 0 },
+        { type: 'websocket', enabled: serviceCount > 0 },
+      ],
+      loadProfile: {
+        type: 'ramp',
+        baseRps: 10,
+        peakRps: serviceCount * 50,
+        rampDurationTicks: 100,
       },
+    };
+
+    // Initialize simulation state from graph when engine is available
+    let initialState: Record<string, unknown> = {};
+    if (this.config.simulationEngine) {
+      try {
+        const state = this.config.simulationEngine.initStateFromGraph(
+          nodes.map((n) => ({ id: n.id, type: n.type, name: n.name, runtime: n.runtime as Record<string, unknown> | undefined })),
+        );
+        initialState = {
+          serviceCount: state.services.size,
+          databaseCount: state.databases.size,
+          queueCount: state.queues.size,
+          cacheCount: state.caches.size,
+          totalEntities: state.services.size + state.databases.size + state.queues.size + state.caches.size,
+        };
+      } catch {
+        // initStateFromGraph is best-effort — continue with defaults
+      }
+    }
+
+    return {
+      simulationConfig,
+      initialState,
+      engineInitialized: this.config.simulationEngine !== undefined,
       estimatedMetrics: {
         avgLatency: `${20 + serviceCount * 5}ms`,
         throughput: `${serviceCount * 100} req/s`,
@@ -743,15 +850,40 @@ export class AgentOrchestrator {
     const hasK8s = nodes.some((n) => ['cluster', 'namespace'].includes(n.type));
     const regions = nodes.filter((n) => n.type === 'region').map((n) => n.name);
 
+    const deploymentPlan = {
+      target: hasK8s ? 'kubernetes' : 'docker-compose',
+      regions: regions.length > 0 ? regions : ['us-east-1'],
+      services: nodes.filter((n) => ['service', 'function'].includes(n.type)).map((n) => n.name),
+      strategy: hasServices ? 'rolling' : 'none',
+      healthCheckEnabled: hasServices,
+    };
+
+    // Generate actual deployment artifacts when engine is available
+    let deploymentResult: { modules: number; errors: string[] } | null = null;
+    if (this.config.deploymentEngine && hasServices) {
+      try {
+        const result = await this.config.deploymentEngine.generateDeployment({
+          projectId,
+          environment: 'development',
+          platform: hasK8s ? 'kubernetes' : 'docker',
+          scaling: { min: 1, max: 10, targetCpuPercent: 70 },
+          monitoring: { prometheus: true, grafana: true, alerting: true },
+          rollback: { enabled: true, maxRevisions: 5 },
+        });
+        deploymentResult = {
+          modules: result.modules.length,
+          errors: result.errors,
+        };
+      } catch {
+        // Deployment generation is best-effort within the orchestrator
+      }
+    }
+
     return {
-      deploymentPlan: {
-        target: hasK8s ? 'kubernetes' : 'docker-compose',
-        regions: regions.length > 0 ? regions : ['us-east-1'],
-        services: nodes.filter((n) => ['service', 'function'].includes(n.type)).map((n) => n.name),
-        strategy: hasServices ? 'rolling' : 'none',
-        healthCheckEnabled: hasServices,
-      },
+      deploymentPlan,
       rollbackConfigured: true,
+      engineGenerated: deploymentResult !== null,
+      ...(deploymentResult ? { deployment: deploymentResult } : {}),
     };
   }
 

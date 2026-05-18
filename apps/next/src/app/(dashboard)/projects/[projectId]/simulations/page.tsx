@@ -52,6 +52,14 @@ export default function SimulationsPage() {
     loadSimulations();
   }, [projectId]);
 
+  // Auto-refresh runs when a simulation run is in progress
+  useEffect(() => {
+    const hasRunning = runs.some((r) => r.status === 'running');
+    if (!hasRunning || !selectedSim) return;
+    const interval = setInterval(() => loadRuns(selectedSim), 2000);
+    return () => clearInterval(interval);
+  }, [runs, selectedSim]);
+
   async function loadSimulations() {
     setLoading(true);
     try {
@@ -74,13 +82,26 @@ export default function SimulationsPage() {
     }
   }
 
-  async function startSimulation(simId: string) {
+  async function startSimulation(generatorType: string, label: string) {
     setRunning(true);
     try {
-      const run = await apiClient<SimulationRun>(`/api/v1/projects/${projectId}/simulations/${simId}/run`, {
+      // Create a simulation definition for this generator type
+      const def = await apiClient<SimulationDef>(`/api/v1/projects/${projectId}/simulations`, {
+        method: 'POST',
+        body: {
+          name: `${label} Simulation`,
+          description: GENERATORS.find((g) => g.type === generatorType)?.desc ?? '',
+          initialState: {},
+          eventGenerators: [{ type: generatorType, config: {}, enabled: true }],
+        },
+      });
+
+      // Run it
+      const run = await apiClient<SimulationRun>(`/api/v1/projects/${projectId}/simulations/${def.id}/run`, {
         method: 'POST',
       });
       setRuns((prev) => [run, ...prev]);
+      setSimulations((prev) => [...prev, def]);
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -119,7 +140,7 @@ export default function SimulationsPage() {
         {GENERATORS.map((gen) => (
           <button
             key={gen.type}
-            onClick={() => startSimulation(gen.type as any)}
+            onClick={() => startSimulation(gen.type, gen.label)}
             disabled={running}
             className="border rounded-lg p-4 hover:shadow-md text-left disabled:opacity-50 transition"
           >

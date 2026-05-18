@@ -56,7 +56,8 @@ export default function EvolvePage() {
       const result = await apiClient<{ message: string }>(`/api/v1/projects/${projectId}/evolve`, {
         method: 'POST',
       });
-      setEvolveResult((result as any)?.message ?? 'Evolution complete');
+      const msg = result as { message?: string } | undefined;
+      setEvolveResult(msg?.message ?? 'Evolution complete');
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -69,9 +70,6 @@ export default function EvolvePage() {
     warning: { bg: 'bg-yellow-50 border-yellow-300', text: 'text-yellow-700', badge: 'bg-yellow-100 text-yellow-700' },
     info: { bg: 'bg-blue-50 border-blue-200', text: 'text-blue-700', badge: 'bg-blue-100 text-blue-700' },
   };
-
-  // Show default insights if API returns none
-  const displayInsights = insights.length > 0 ? insights : getDefaultInsights();
 
   return (
     <div className="p-6">
@@ -111,119 +109,68 @@ export default function EvolvePage() {
       {/* Architecture Insights */}
       <div className="mt-6">
         <h2 className="text-lg font-semibold mb-3">
-          Architecture Insights ({displayInsights.length})
+          Architecture Insights ({insights.length})
         </h2>
-        <div className="space-y-3">
-          {displayInsights.map((insight) => {
-            const config = severityConfig[insight.severity] ?? severityConfig.info;
-            return (
-              <div
-                key={insight.id}
-                className={`border rounded-lg p-4 ${config.bg}`}
-              >
-                <div className="flex items-center gap-2 mb-1">
-                  <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${config.badge}`}>
-                    {insight.severity}
-                  </span>
-                  <span className="font-semibold text-sm">{insight.title}</span>
-                  <span className="text-xs px-1.5 py-0.5 rounded bg-white text-gray-600">
-                    {insight.type}
-                  </span>
+        {insights.length > 0 ? (
+          <div className="space-y-3">
+            {insights.map((insight) => {
+              const config = severityConfig[insight.severity] ?? severityConfig.info;
+              return (
+                <div
+                  key={insight.id}
+                  className={`border rounded-lg p-4 ${config.bg}`}
+                >
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${config.badge}`}>
+                      {insight.severity}
+                    </span>
+                    <span className="font-semibold text-sm">{insight.title}</span>
+                    <span className="text-xs px-1.5 py-0.5 rounded bg-white text-gray-600">
+                      {insight.type}
+                    </span>
+                  </div>
+                  <p className="text-xs text-gray-600 mt-1">{insight.description}</p>
+                  <p className="text-xs text-gray-700 mt-1.5 font-medium">
+                    Suggestion: {insight.suggestion}
+                  </p>
                 </div>
-                <p className="text-xs text-gray-600 mt-1">{insight.description}</p>
-                <p className="text-xs text-gray-700 mt-1.5 font-medium">
-                  Suggestion: {insight.suggestion}
-                </p>
-              </div>
-            );
-          })}
-        </div>
+              );
+            })}
+          </div>
+        ) : (
+          <p className="text-sm text-gray-400 py-8 text-center">
+            No architecture insights yet. Click "Evolve Architecture" to analyze the graph and generate insights.
+          </p>
+        )}
       </div>
 
       {/* Evolution Templates */}
       <div className="mt-8">
         <h2 className="text-lg font-semibold mb-3">
-          Architecture Templates ({templates.length || 5})
+          Architecture Templates ({templates.length})
         </h2>
-        <div className="grid grid-cols-2 gap-3">
-          {(templates.length > 0 ? templates : getDefaultTemplates()).map((tpl) => (
-            <div key={tpl.id} className="border rounded-lg p-3 hover:shadow-md transition">
-              <div className="font-semibold text-sm">{tpl.name}</div>
-              <p className="text-xs text-gray-500 mt-1">{tpl.description}</p>
-              <div className="flex flex-wrap gap-1 mt-2">
-                {tpl.tags.map((tag) => (
-                  <span key={tag} className="text-xs px-1.5 py-0.5 rounded bg-gray-100 text-gray-600">
-                    {tag}
-                  </span>
-                ))}
+        {templates.length > 0 ? (
+          <div className="grid grid-cols-2 gap-3">
+            {templates.map((tpl) => (
+              <div key={tpl.id} className="border rounded-lg p-3 hover:shadow-md transition">
+                <div className="font-semibold text-sm">{tpl.name}</div>
+                <p className="text-xs text-gray-500 mt-1">{tpl.description}</p>
+                <div className="flex flex-wrap gap-1 mt-2">
+                  {tpl.tags.map((tag) => (
+                    <span key={tag} className="text-xs px-1.5 py-0.5 rounded bg-gray-100 text-gray-600">
+                      {tag}
+                    </span>
+                  ))}
+                </div>
               </div>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        ) : (
+          <p className="text-sm text-gray-400 py-8 text-center">
+            No architecture templates matched. Templates are matched against your graph topology when you evolve the architecture.
+          </p>
+        )}
       </div>
     </div>
   );
-}
-
-function getDefaultInsights(): ArchitectureInsight[] {
-  return [
-    {
-      id: 'insight-1',
-      title: 'Monolith Detected',
-      type: 'architecture',
-      description: 'Multiple services are tightly coupled through shared database access. This creates a single point of failure.',
-      suggestion: 'Split into bounded contexts with separate databases per domain.',
-      severity: 'critical',
-    },
-    {
-      id: 'insight-2',
-      title: 'Missing Caching Layer',
-      type: 'performance',
-      description: 'No cache nodes detected in the architecture. Repeated database queries may cause latency.',
-      suggestion: 'Add a Redis cache node before database services to reduce read latency.',
-      severity: 'warning',
-    },
-    {
-      id: 'insight-3',
-      title: 'No Observability',
-      type: 'operations',
-      description: 'Missing monitoring nodes. Production systems require metrics, logging, and alerting.',
-      suggestion: 'Add a monitoring node with Prometheus and Grafana integration.',
-      severity: 'warning',
-    },
-    {
-      id: 'insight-4',
-      title: 'High Fan-In Detected',
-      type: 'topology',
-      description: 'A service has more than 5 incoming dependencies, creating a potential bottleneck.',
-      suggestion: 'Consider splitting the service or adding a load balancer to distribute traffic.',
-      severity: 'warning',
-    },
-    {
-      id: 'insight-5',
-      title: 'API Gateway Pattern Available',
-      type: 'pattern',
-      description: 'Multiple API endpoints without a centralized gateway. This makes rate limiting and auth harder.',
-      suggestion: 'Add an API Gateway node to centralize cross-cutting concerns.',
-      severity: 'info',
-    },
-    {
-      id: 'insight-6',
-      title: 'No Health Checks Configured',
-      type: 'reliability',
-      description: 'Services lack health check endpoints. Orchestrators cannot detect unhealthy instances.',
-      suggestion: 'Add /health endpoints to all services for Kubernetes liveness probes.',
-      severity: 'info',
-    },
-  ];
-}
-
-function getDefaultTemplates(): EvolutionTemplate[] {
-  return [
-    { id: 'tpl-1', name: 'Web Application', description: 'Next.js + Node.js backend + PostgreSQL + Redis', tags: ['react', 'nodejs', 'postgres', 'redis'] },
-    { id: 'tpl-2', name: 'Microservices', description: 'Multiple services with API gateway, event bus, and per-service databases', tags: ['microservices', 'event-driven', 'docker', 'kubernetes'] },
-    { id: 'tpl-3', name: 'Event-Driven', description: 'Event sourcing with Kafka/RabbitMQ, CQRS pattern, and materialized views', tags: ['event-sourcing', 'cqrs', 'kafka', 'redis'] },
-    { id: 'tpl-4', name: 'Serverless', description: 'Lambda/Cloud Functions with API Gateway, DynamoDB, and S3', tags: ['serverless', 'aws', 'lambda', 'dynamodb'] },
-    { id: 'tpl-5', name: 'AI Pipeline', description: 'ML model serving with inference API, feature store, and model registry', tags: ['ai', 'ml', 'pipeline', 'fastapi'] },
-  ];
 }

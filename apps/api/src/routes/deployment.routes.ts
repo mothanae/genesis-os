@@ -1,35 +1,39 @@
 import type { FastifyInstance } from 'fastify';
+import { deployGenerateSchema, deploySimulateSchema, rollbackSchema } from '@genesis-1/shared/schemas';
 
 export async function deploymentRoutes(app: FastifyInstance): Promise<void> {
   // Generate deployment artifacts
   app.post('/:projectId/deploy/generate', async (request, reply) => {
     const { projectId } = request.params as { projectId: string };
-    const body = request.body as {
-      environment?: string;
-      platform?: string;
-      cloudProvider?: string;
-      region?: string;
-      domain?: string;
-    };
+    const result = deployGenerateSchema.safeParse(request.body);
+    if (!result.success) {
+      return reply.status(422).send({
+        success: false,
+        error: 'Validation error',
+        details: result.error.flatten(),
+      });
+    }
 
-    const result = await app.deploymentEngine.generateDeployment({
+    const { environment, platform, cloudProvider, region, domain } = result.data;
+
+    const deployResult = await app.deploymentEngine.generateDeployment({
       projectId,
-      environment: (body.environment as 'development' | 'staging' | 'production') ?? 'development',
-      platform: (body.platform as 'docker' | 'kubernetes') ?? 'docker',
-      cloudProvider: (body.cloudProvider as 'aws' | 'gcp' | 'azure'),
-      region: body.region,
-      domain: body.domain,
+      environment,
+      platform,
+      cloudProvider,
+      region,
+      domain,
       scaling: { min: 1, max: 10, targetCpuPercent: 70 },
       monitoring: { prometheus: true, grafana: true, alerting: true },
       rollback: { enabled: true, maxRevisions: 5 },
     });
 
     return reply.send({
-      success: result.success,
+      success: deployResult.success,
       data: {
-        modules: result.modules.map((m) => ({ path: m.path, type: m.type, description: m.description })),
-        plan: result.deploymentPlan,
-        errors: result.errors,
+        modules: deployResult.modules.map((m) => ({ path: m.path, type: m.type, description: m.description })),
+        plan: deployResult.deploymentPlan,
+        errors: deployResult.errors,
       },
     });
   });
@@ -37,22 +41,32 @@ export async function deploymentRoutes(app: FastifyInstance): Promise<void> {
   // Simulate deployment (dry-run)
   app.post('/:projectId/deploy/simulate', async (request, reply) => {
     const { projectId } = request.params as { projectId: string };
+    const result = deploySimulateSchema.safeParse(request.body);
+    if (!result.success) {
+      return reply.status(422).send({
+        success: false,
+        error: 'Validation error',
+        details: result.error.flatten(),
+      });
+    }
 
-    const result = await app.deploymentEngine.simulateDeployment({
+    const { environment, platform, cloudProvider } = result.data;
+
+    const simResult = await app.deploymentEngine.simulateDeployment({
       projectId,
-      environment: 'development',
-      platform: 'kubernetes',
-      cloudProvider: 'aws',
+      environment,
+      platform,
+      cloudProvider,
       scaling: { min: 1, max: 10, targetCpuPercent: 70 },
       monitoring: { prometheus: true, grafana: true, alerting: true },
     });
 
     return reply.send({
-      success: result.success,
+      success: simResult.success,
       data: {
         mode: 'dry-run',
-        modules: result.modules.map((m) => ({ path: m.path, type: m.type })),
-        plan: result.deploymentPlan,
+        modules: simResult.modules.map((m) => ({ path: m.path, type: m.type })),
+        plan: simResult.deploymentPlan,
       },
     });
   });
@@ -60,8 +74,16 @@ export async function deploymentRoutes(app: FastifyInstance): Promise<void> {
   // Rollback deployment
   app.post('/:projectId/deploy/rollback', async (request, reply) => {
     const { projectId } = request.params as { projectId: string };
-    const { revision } = request.body as { revision?: string };
+    const result = rollbackSchema.safeParse(request.body);
+    if (!result.success) {
+      return reply.status(422).send({
+        success: false,
+        error: 'Validation error',
+        details: result.error.flatten(),
+      });
+    }
 
+    const { revision } = result.data;
     await app.deploymentEngine.rollback(projectId, revision ?? 'previous');
 
     return reply.send({ success: true, data: { message: 'Rollback initiated', revision: revision ?? 'previous' } });

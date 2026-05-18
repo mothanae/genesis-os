@@ -1,6 +1,8 @@
 import type { GraphEngine } from '@genesis-1/graph-engine';
 import type { EventPublisher } from '@genesis-1/event-bus';
 import { EventType } from '@genesis-1/shared';
+import { mkdir, writeFile } from 'node:fs/promises';
+import { dirname } from 'node:path';
 
 // ── Types ─────────────────────────────────────────────────────
 
@@ -29,6 +31,13 @@ export interface GenerationResult {
     languages: string[];
     durationMs: number;
   };
+}
+
+export interface PersistResult {
+  written: number;
+  skipped: number;
+  failed: number;
+  failures: Array<{ path: string; error: string }>;
 }
 
 // ── Engine ────────────────────────────────────────────────────
@@ -637,6 +646,52 @@ ANALYTICS_ENDPOINT=/api/analytics`;
     return `version: '3.8'
 services:
 ${entries}`;
+  }
+
+  // ── File Persistence ────────────────────────────────────────
+
+  /**
+   * Write generated modules to disk. Creates parent directories as needed.
+   * Returns counts of written, skipped, and failed files.
+   */
+  async persistModules(result: GenerationResult): Promise<PersistResult> {
+    const persistResult: PersistResult = { written: 0, skipped: 0, failed: 0, failures: [] };
+
+    for (const mod of result.modules) {
+      try {
+        const dir = dirname(mod.path);
+        await mkdir(dir, { recursive: true });
+        await writeFile(mod.path, mod.content, 'utf-8');
+        persistResult.written++;
+      } catch (err) {
+        persistResult.failed++;
+        persistResult.failures.push({
+          path: mod.path,
+          error: (err as Error).message,
+        });
+      }
+    }
+
+    // Skip count is modules that are empty (no content to write)
+    persistResult.skipped = result.modules.filter((m) => m.content.length === 0).length;
+    persistResult.written -= persistResult.skipped;
+
+    return persistResult;
+  }
+
+  /**
+   * Full pipeline: generate from graph, then write to disk.
+   * Returns combined generation and persist results.
+   */
+  async generateAndPersist(
+    config: GenerationConfig,
+  ): Promise<GenerationResult & { persisted: PersistResult }> {
+    const result = await this.generate(config);
+    const persisted = result.success
+      ? await this.persistModules(result)
+      : { written: 0, skipped: 0, failed: 0, failures: [] };
+
+    return { ...result, persisted };
   }
 
   // ── Name helpers ────────────────────────────────────────────

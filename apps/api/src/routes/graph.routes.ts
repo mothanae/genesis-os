@@ -32,7 +32,7 @@ export async function graphRoutes(app: FastifyInstance): Promise<void> {
     const { projectId } = request.params as { projectId: string };
     const body = request.body as { nodes?: unknown[]; edges?: unknown[] };
 
-    const results: { nodesCreated: number; nodesUpdated: number; edgesCreated: number; edgesUpdated: number; errors: string[] } = {
+    const results: { nodesCreated: number; nodesUpdated: number; edgesCreated: number; edgesUpdated: number; errors: string[]; ruleViolations?: number } = {
       nodesCreated: 0,
       nodesUpdated: 0,
       edgesCreated: 0,
@@ -129,6 +129,45 @@ export async function graphRoutes(app: FastifyInstance): Promise<void> {
       }
     }
 
+    // Auto-evaluate rules after graph changes
+    try {
+      const { data: nodes } = await app.graphEngine.listNodes(projectId);
+      const edges = await app.graphEngine.listEdges(projectId);
+      const typeCounts: Record<string, number> = {};
+      for (const n of nodes) {
+        typeCounts[n.type] = (typeCounts[n.type] ?? 0) + 1;
+      }
+      const context = {
+        projectId,
+        nodeCount: nodes.length,
+        edgeCount: edges.length,
+        serviceCount: typeCounts['service'] ?? 0,
+        databaseCount: typeCounts['database'] ?? 0,
+        cacheCount: typeCounts['cache'] ?? 0,
+        apiGatewayCount: typeCounts['api_gateway'] ?? 0,
+        hasApiGateway: typeCounts['api_gateway'] > 0,
+        hasAuthentication: nodes.some((n: { name: string }) => n.name.toLowerCase().includes('auth')),
+        hasObservability: nodes.some((n: { name: string }) => n.name.toLowerCase().includes('monitor') || n.name.toLowerCase().includes('prometheus')),
+        maxFanOut: Math.max(0, ...nodes.map((n: { id: string }) => edges.filter((e: { source: string }) => e.source === n.id).length)),
+      };
+
+      const { ruleSets } = await import('@genesis-1/database');
+      const { eq, and } = await import('drizzle-orm');
+      const sets = await app.db
+        .select()
+        .from(ruleSets)
+        .where(and(eq(ruleSets.projectId, projectId), eq(ruleSets.enabled, true)));
+
+      for (const rs of sets) {
+        await app.ruleEngine.evaluateRuleSet(rs.id, context);
+      }
+
+      const currentViolations = await app.ruleEngine.getViolations(projectId);
+      results.ruleViolations = currentViolations.filter((v: { resolvedAt?: string | null }) => !v.resolvedAt).length;
+    } catch {
+      // Rule evaluation is optional — don't block save
+    }
+
     return reply.send({ success: true, data: results });
   });
 
@@ -154,7 +193,9 @@ export async function graphRoutes(app: FastifyInstance): Promise<void> {
   // ── Edges ─────────────────────────────────────────────────────
 
   app.get('/:projectId/graph/edges', async (request, reply) => {
-    return reply.send({ success: true, data: [] });
+    const { projectId } = request.params as { projectId: string };
+    const edges = await app.graphEngine.listEdges(projectId);
+    return reply.send({ success: true, data: edges });
   });
 
   app.post('/:projectId/graph/edges', async (request, reply) => {
@@ -215,6 +256,65 @@ export async function graphRoutes(app: FastifyInstance): Promise<void> {
     const { snapshotAId, snapshotBId } = request.body as { snapshotAId: string; snapshotBId: string };
     const diff = await app.graphEngine.diffSnapshots(snapshotAId, snapshotBId);
     return reply.send({ success: true, data: diff });
+  });
+
+  // ── Validation ─────────────────────────────────────────────────
+
+  app.get('/:projectId/graph/validate', async (request, reply) => {
+    const { projectId } = request.params as { projectId: string };
+    const topology = await app.graphEngine.validateTopology(projectId);
+
+    // Build graph context for rule evaluation
+    const { data: nodes } = await app.graphEngine.listNodes(projectId);
+    const edges = await app.graphEngine.listEdges(projectId);
+    let cycles: unknown[] = [];
+    try {
+      cycles = await app.graphEngine.detectCycles(projectId) ?? [];
+    } catch {
+      // Cycle detection may fail on raw SQL — non-critical
+    }
+
+    const typeCounts: Record<string, number> = {};
+    for (const n of nodes) {
+      typeCounts[n.type] = (typeCounts[n.type] ?? 0) + 1;
+    }
+
+    const context = {
+      projectId,
+      nodeCount: nodes.length,
+      edgeCount: edges.length,
+      nodeTypes: typeCounts,
+      serviceCount: typeCounts['service'] ?? 0,
+      databaseCount: typeCounts['database'] ?? 0,
+      cacheCount: typeCounts['cache'] ?? 0,
+      queueCount: typeCounts['queue'] ?? 0,
+      apiGatewayCount: typeCounts['api_gateway'] ?? 0,
+      hasCycles: Array.isArray(cycles) && cycles.length > 0,
+      cycles: Array.isArray(cycles) ? cycles.map((c: unknown) => ({ path: (c as Record<string, unknown>).path, length: ((c as Record<string, unknown>).path as unknown[])?.length ?? 0 })) : [],
+      hasAuthentication: nodes.some((n) => n.name.toLowerCase().includes('auth')),
+      hasObservability: nodes.some((n) => n.name.toLowerCase().includes('monitor') || n.name.toLowerCase().includes('prometheus')),
+      hasApiGateway: typeCounts['api_gateway'] > 0,
+      maxFanOut: Math.max(0, ...nodes.map((n) => edges.filter((e) => e.source === n.id).length)),
+      topologyValid: topology.valid,
+    };
+
+    // Run rules against graph context
+    let ruleViolationDetails: unknown[] = [];
+    try {
+      ruleViolationDetails = await app.ruleEngine.getViolations(projectId);
+    } catch {
+      // Rule evaluation is best-effort
+    }
+
+    return reply.send({
+      success: true,
+      data: {
+        ...topology,
+        context,
+        ruleViolations: ruleViolationDetails.length,
+        ruleViolationDetails: ruleViolationDetails.slice(0, 20),
+      },
+    });
   });
 
   // ── Analysis ──────────────────────────────────────────────────

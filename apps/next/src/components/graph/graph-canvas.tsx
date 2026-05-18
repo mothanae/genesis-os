@@ -22,7 +22,7 @@ const nodeTypes = {
   custom: CustomNodeComponent,
 };
 
-function GraphCanvasInner({ projectId }: { projectId: string }) {
+function GraphCanvasInner({ projectId, onMutation }: { projectId: string; onMutation?: (action: string, payload: Record<string, unknown>) => void }) {
   const {
     nodes,
     edges,
@@ -45,12 +45,14 @@ function GraphCanvasInner({ projectId }: { projectId: string }) {
   useEffect(() => {
     async function loadGraph() {
       try {
-        const data = await apiClient<{ nodes: unknown[]; edges: unknown[] }>(
-          `/api/v1/projects/${projectId}/graph/nodes`,
-        );
-        if (data && Array.isArray(data.nodes)) {
+        const [nodesData, edgesData] = await Promise.all([
+          apiClient<unknown[]>(`/api/v1/projects/${projectId}/graph/nodes`),
+          apiClient<unknown[]>(`/api/v1/projects/${projectId}/graph/edges`),
+        ]);
+
+        if (Array.isArray(nodesData)) {
           setNodes(
-            (data.nodes as Array<Record<string, unknown>>).map((n) => ({
+            (nodesData as Array<Record<string, unknown>>).map((n) => ({
               id: n.id as string,
               type: 'custom',
               position: { x: (n.position as { x: number; y: number })?.x ?? 0, y: (n.position as { x: number; y: number })?.y ?? 0 },
@@ -66,9 +68,9 @@ function GraphCanvasInner({ projectId }: { projectId: string }) {
             })),
           );
         }
-        if (data && Array.isArray(data.edges)) {
+        if (Array.isArray(edgesData)) {
           setEdges(
-            (data.edges as Array<Record<string, unknown>>).map((e) => ({
+            (edgesData as Array<Record<string, unknown>>).map((e) => ({
               id: e.id as string,
               source: e.source as string,
               target: e.target as string,
@@ -98,10 +100,36 @@ function GraphCanvasInner({ projectId }: { projectId: string }) {
         animated: false,
         style: { stroke: '#6b7280', strokeWidth: 2 },
       };
-      const edges = addEdge(newEdge, useCanvasStore.getState().edges);
+      addEdge(newEdge, useCanvasStore.getState().edges);
       addEdgeToStore(newEdge);
+      onMutation?.('add_edge', { edge: newEdge });
     },
-    [pushState, addEdgeToStore],
+    [pushState, addEdgeToStore, onMutation],
+  );
+
+  // Detect node/edge removals from ReactFlow changes
+  const handleNodesChange = useCallback(
+    (changes: Parameters<typeof onNodesChange>[0]) => {
+      for (const change of changes) {
+        if (change.type === 'remove') {
+          onMutation?.('remove_node', { nodeId: change.id });
+        }
+      }
+      onNodesChange(changes);
+    },
+    [onNodesChange, onMutation],
+  );
+
+  const handleEdgesChange = useCallback(
+    (changes: Parameters<typeof onEdgesChange>[0]) => {
+      for (const change of changes) {
+        if (change.type === 'remove') {
+          onMutation?.('remove_edge', { edgeId: change.id });
+        }
+      }
+      onEdgesChange(changes);
+    },
+    [onEdgesChange, onMutation],
   );
 
   // Handle node click
@@ -161,8 +189,9 @@ function GraphCanvasInner({ projectId }: { projectId: string }) {
         },
       };
       addNode(newNode);
+      onMutation?.('add_node', { node: newNode });
     },
-    [screenToFlowPosition, addNode],
+    [screenToFlowPosition, addNode, onMutation],
   );
 
   return (
@@ -170,8 +199,8 @@ function GraphCanvasInner({ projectId }: { projectId: string }) {
       <ReactFlow
         nodes={nodes}
         edges={edges}
-        onNodesChange={onNodesChange}
-        onEdgesChange={onEdgesChange}
+        onNodesChange={handleNodesChange}
+        onEdgesChange={handleEdgesChange}
         onConnect={onConnect}
         onNodeClick={onNodeClick}
         onEdgeClick={onEdgeClick}
@@ -207,10 +236,10 @@ function GraphCanvasInner({ projectId }: { projectId: string }) {
   );
 }
 
-export function GraphCanvas({ projectId }: { projectId: string }) {
+export function GraphCanvas({ projectId, onMutation }: { projectId: string; onMutation?: (action: string, payload: Record<string, unknown>) => void }) {
   return (
     <ReactFlowProvider>
-      <GraphCanvasInner projectId={projectId} />
+      <GraphCanvasInner projectId={projectId} onMutation={onMutation} />
     </ReactFlowProvider>
   );
 }

@@ -21,7 +21,7 @@ export function DiagramViewer({ projectId }: DiagramViewerProps) {
   const loadDiagram = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await apiClient<any>(`/api/v1/projects/${projectId}/graph/diagram`, {
+      const data = await apiClient<{ allFormats?: Record<string, string>; diagram: string; errors?: string[] }>(`/api/v1/projects/${projectId}/graph/diagram`, {
         method: 'POST',
         body: {
           format: 'all',

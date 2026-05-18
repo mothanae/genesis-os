@@ -37,7 +37,7 @@ export default function DeployPage() {
   async function generateDeployment() {
     setLoading(true);
     try {
-      const data = await apiClient<any>(
+      const data = await apiClient<DeployResult>(
         `/api/v1/projects/${projectId}/deploy/${dryRun ? 'simulate' : 'generate'}`,
         {
           method: 'POST',

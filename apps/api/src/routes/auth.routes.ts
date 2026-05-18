@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import { loginSchema, registerSchema, refreshTokenSchema } from '@genesis-1/shared/schemas';
+import { loginSchema, registerSchema, refreshTokenSchema, createApiKeySchema } from '@genesis-1/shared/schemas';
 import { authenticate } from '../plugins/auth';
 
 export async function authRoutes(app: FastifyInstance): Promise<void> {
@@ -116,5 +116,73 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
       }
     }
     return reply.send({ success: true, data: { message: 'Logged out' } });
+  });
+
+  // ── API Keys ────────────────────────────────────────────────
+
+  // GET /api/v1/auth/api-keys
+  app.get('/api-keys', { preHandler: [authenticate] }, async (request, reply) => {
+    if (!request.user) {
+      return reply.status(401).send({ success: false, error: 'Not authenticated' });
+    }
+    try {
+      const keys = await app.apiKeyService.listKeys(request.user.sub);
+      return reply.send({ success: true, data: keys });
+    } catch (err: unknown) {
+      if (err instanceof Error && 'statusCode' in err) {
+        const domainErr = err as Error & { statusCode: number };
+        return reply.status(domainErr.statusCode).send({ success: false, error: domainErr.message });
+      }
+      throw err;
+    }
+  });
+
+  // POST /api/v1/auth/api-keys
+  app.post('/api-keys', { preHandler: [authenticate] }, async (request, reply) => {
+    if (!request.user) {
+      return reply.status(401).send({ success: false, error: 'Not authenticated' });
+    }
+    const result = createApiKeySchema.safeParse(request.body);
+    if (!result.success) {
+      return reply.status(422).send({
+        success: false,
+        error: 'Validation error',
+        details: result.error.flatten(),
+      });
+    }
+
+    try {
+      const { name, scopes, expiresAt } = result.data;
+      const expiresInDays = expiresAt
+        ? Math.ceil((new Date(expiresAt).getTime() - Date.now()) / (24 * 60 * 60 * 1000))
+        : undefined;
+      const key = await app.apiKeyService.createKey(request.user.sub, name, scopes, expiresInDays);
+      return reply.status(201).send({ success: true, data: key });
+    } catch (err: unknown) {
+      if (err instanceof Error && 'statusCode' in err) {
+        const domainErr = err as Error & { statusCode: number };
+        return reply.status(domainErr.statusCode).send({ success: false, error: domainErr.message });
+      }
+      throw err;
+    }
+  });
+
+  // DELETE /api/v1/auth/api-keys/:keyId
+  app.delete('/api-keys/:keyId', { preHandler: [authenticate] }, async (request, reply) => {
+    if (!request.user) {
+      return reply.status(401).send({ success: false, error: 'Not authenticated' });
+    }
+    const { keyId } = request.params as { keyId: string };
+
+    try {
+      await app.apiKeyService.revokeKey(keyId, request.user.sub);
+      return reply.send({ success: true, data: { message: 'API key revoked' } });
+    } catch (err: unknown) {
+      if (err instanceof Error && 'statusCode' in err) {
+        const domainErr = err as Error & { statusCode: number };
+        return reply.status(domainErr.statusCode).send({ success: false, error: domainErr.message });
+      }
+      throw err;
+    }
   });
 }

@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useWebSocket } from '@/hooks/use-websocket';
+import { apiClient } from '@/lib/api-client';
 
 interface SimulationMetrics {
   avgLatencyP50: number;
@@ -42,9 +43,12 @@ interface SimulationState {
 
 export function SimulationViewer({ projectId }: { projectId: string }) {
   const [running, setRunning] = useState(false);
+  const [loading, setLoading] = useState(false);
   const [state, setState] = useState<SimulationState | null>(null);
   const [metrics, setMetrics] = useState<SimulationMetrics | null>(null);
   const [events, setEvents] = useState<SimEvent[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [activeSimId, setActiveSimId] = useState<string | null>(null);
 
   useWebSocket({
     projectId,
@@ -65,18 +69,78 @@ export function SimulationViewer({ projectId }: { projectId: string }) {
     },
   });
 
+  async function handleStart() {
+    setLoading(true);
+    setError(null);
+    try {
+      // Create a simulation definition from the project graph
+      const simDef = await apiClient<{ id: string }>(`/api/v1/projects/${projectId}/simulations`, {
+        method: 'POST',
+        body: {
+          name: 'Runtime Simulation',
+          description: 'Auto-generated simulation from graph topology',
+          initialState: {},
+          eventGenerators: [
+            { type: 'http_traffic', config: { rps: 50 }, enabled: true },
+            { type: 'db_queries', config: {}, enabled: true },
+            { type: 'events', config: {}, enabled: true },
+            { type: 'websocket', config: {}, enabled: true },
+          ],
+          termination: { maxSteps: 10000, maxTime: 3600 },
+        },
+      });
+
+      // Start the simulation run
+      await apiClient(`/api/v1/projects/${projectId}/simulations/${simDef.id}/run`, {
+        method: 'POST',
+      });
+
+      setActiveSimId(simDef.id);
+      setRunning(true);
+      setMetrics(null);
+      setEvents([]);
+    } catch (e) {
+      setError((e as Error).message);
+      setRunning(false);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleStop() {
+    if (!activeSimId) return;
+    try {
+      await apiClient(`/api/v1/projects/${projectId}/simulations/${activeSimId}/cancel`, {
+        method: 'POST',
+      });
+    } catch {
+      // Best-effort cancel
+    }
+    setRunning(false);
+  }
+
   return (
     <div className="p-4 space-y-4">
       {/* Controls */}
       <div className="flex items-center justify-between">
         <h2 className="text-lg font-bold">Runtime Simulation</h2>
         <button
-          onClick={() => setRunning(!running)}
-          className={`px-4 py-2 rounded-lg text-white text-sm ${running ? 'bg-red-600 hover:bg-red-700' : 'bg-green-600 hover:bg-green-700'}`}
+          onClick={running ? handleStop : handleStart}
+          disabled={loading}
+          className={`px-4 py-2 rounded-lg text-white text-sm disabled:opacity-50 ${
+            loading ? 'bg-gray-400' : running ? 'bg-red-600 hover:bg-red-700' : 'bg-green-600 hover:bg-green-700'
+          }`}
         >
-          {running ? 'Stop' : 'Start Simulation'}
+          {loading ? 'Starting...' : running ? 'Stop' : 'Start Simulation'}
         </button>
       </div>
+
+      {error && (
+        <div className="rounded-lg bg-red-50 border border-red-200 p-3 text-red-700 text-xs">
+          {error}
+          <button onClick={() => setError(null)} className="ml-2 underline">Dismiss</button>
+        </div>
+      )}
 
       {/* Metrics panels */}
       {metrics && (

@@ -92,6 +92,14 @@ export async function apiClient<T = unknown>(
     const data = await res.json();
 
     if (!res.ok) {
+      // Show toast for common errors
+      try {
+        const { useToastStore } = await import('@/stores/toast.store');
+        const message = data?.error ?? `Request failed (${res.status})`;
+        const toastType = res.status >= 500 ? 'error' : res.status === 403 ? 'warning' : 'error';
+        useToastStore.getState().addToast({ type: toastType, message });
+      } catch { /* toast is best-effort */ }
+
       throw new ApiClientError(
         res.status,
         data?.code ?? 'UNKNOWN',
@@ -101,6 +109,14 @@ export async function apiClient<T = unknown>(
     }
 
     return data.data as T;
+  } catch (err) {
+    if (err instanceof ApiClientError) throw err;
+    // Network error
+    try {
+      const { useToastStore } = await import('@/stores/toast.store');
+      useToastStore.getState().addToast({ type: 'error', message: 'Network error — check your connection' });
+    } catch { /* toast is best-effort */ }
+    throw err;
   } finally {
     clearTimeout(timeoutId);
   }

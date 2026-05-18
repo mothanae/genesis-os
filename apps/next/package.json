@@ -9,28 +9,30 @@
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "test:e2e": "playwright test",
     "clean": "rm -rf .next dist"
   },
   "dependencies": {
     "@genesis-1/shared": "workspace:*",
+    "@monaco-editor/react": "^4.6.0",
     "@xyflow/react": "^12.3.0",
+    "framer-motion": "^11.12.0",
     "next": "^15.1.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "zustand": "^5.0.0",
-    "framer-motion": "^11.12.0",
-    "@monaco-editor/react": "^4.6.0",
-    "zod": "^3.24.1"
+    "zod": "^3.24.1",
+    "zustand": "^5.0.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.60.0",
     "@types/node": "^22.10.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
-    "tailwindcss": "^3.4.17",
-    "postcss": "^8.4.49",
+    "@vitejs/plugin-react": "^4.3.4",
     "autoprefixer": "^10.4.20",
+    "postcss": "^8.4.49",
+    "tailwindcss": "^3.4.17",
     "typescript": "^5.7.3",
-    "vitest": "^2.1.8",
-    "@vitejs/plugin-react": "^4.3.4"
+    "vitest": "^2.1.8"
   }
 }

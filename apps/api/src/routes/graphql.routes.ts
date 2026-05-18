@@ -1,214 +1,376 @@
 import type { FastifyInstance } from 'fastify';
+import { createYoga, createSchema } from 'graphql-yoga';
 import { projects, agentDefinitions, simulationRuns } from '@genesis-1/database';
 import { eq, desc } from 'drizzle-orm';
 
-// Lightweight GraphQL endpoint — processes queries against graph engines
-// without requiring a full GraphQL server library.
+// ── Schema ───────────────────────────────────────────────────
 
-interface GraphQLRequest {
-  query: string;
-  variables?: Record<string, unknown>;
-  operationName?: string;
-}
+const typeDefs = `
+  type Project {
+    id: ID!
+    name: String!
+    slug: String!
+    description: String
+    ownerId: ID!
+    createdAt: String
+    updatedAt: String
+  }
+
+  type Position {
+    x: Float!
+    y: Float!
+  }
+
+  type Port {
+    name: String!
+    type: String!
+    required: Boolean
+  }
+
+  type GraphNode {
+    id: ID!
+    type: String!
+    name: String!
+    description: String
+    state: String
+    version: Int
+    position: Position
+    inputs: [Port]
+    outputs: [Port]
+    runtime: JSON
+    deployment: JSON
+  }
+
+  type GraphEdge {
+    id: ID!
+    source: ID!
+    target: ID!
+    type: String!
+    label: String
+    realtime: Boolean
+    bidirectional: Boolean
+    weight: Float
+  }
+
+  type AgentDefinition {
+    id: ID!
+    name: String!
+    description: String
+    status: String!
+    version: Int!
+    createdAt: String
+    updatedAt: String
+  }
+
+  type Execution {
+    id: ID!
+    agentId: ID!
+    status: String!
+    input: JSON
+    output: JSON
+    totalDurationMs: Int
+    totalTokens: Int
+    startedAt: String
+    completedAt: String
+  }
+
+  type ExecutionStep {
+    id: ID!
+    stepType: String!
+    label: String
+    status: String!
+    output: JSON
+    error: String
+    durationMs: Int
+    tokenCount: Int
+  }
+
+  type RuleViolation {
+    id: ID!
+    ruleId: ID!
+    severity: String!
+    message: String!
+    nodeId: ID
+    edgeId: ID
+    createdAt: String
+  }
+
+  type SimulationRun {
+    id: ID!
+    simulationId: ID!
+    projectId: ID!
+    status: String!
+    totalSteps: Int!
+    clockEnd: Float
+    metrics: JSON
+    startedAt: String
+    completedAt: String
+  }
+
+  type TopologyValidation {
+    valid: Boolean!
+    errors: [String]
+    warnings: [String]
+  }
+
+  scalar JSON
+
+  type Query {
+    projects: [Project!]!
+    project(id: ID!): Project
+    graphNodes(projectId: ID!): [GraphNode!]!
+    graphEdges(projectId: ID!): [GraphEdge!]!
+    agents(projectId: ID): [AgentDefinition!]!
+    execution(id: ID!): Execution
+    executionSteps(executionId: ID!): [ExecutionStep!]
+    violations(projectId: ID!): [RuleViolation!]
+    simulationRuns(projectId: ID!): [SimulationRun!]
+    topologyValidation(projectId: ID!): TopologyValidation
+  }
+
+  input CreateProjectInput {
+    name: String!
+    description: String
+  }
+
+  input UpdateProjectInput {
+    name: String
+    description: String
+  }
+
+  input CreateNodeInput {
+    type: String!
+    name: String!
+    description: String
+    positionX: Float
+    positionY: Float
+    properties: JSON
+  }
+
+  input CreateEdgeInput {
+    source: ID!
+    target: ID!
+    type: String!
+    label: String
+    weight: Float
+  }
+
+  type Mutation {
+    createProject(input: CreateProjectInput!): Project!
+    updateProject(id: ID!, input: UpdateProjectInput!): Project!
+    deleteProject(id: ID!): Boolean!
+    createNode(projectId: ID!, input: CreateNodeInput!): GraphNode!
+    deleteNode(projectId: ID!, nodeId: ID!): Boolean!
+    createEdge(projectId: ID!, input: CreateEdgeInput!): GraphEdge!
+    deleteEdge(projectId: ID!, edgeId: ID!): Boolean!
+    executeAgent(projectId: ID!, agentId: ID!, input: JSON): Execution!
+    runValidation(projectId: ID!): TopologyValidation!
+  }
+`;
 
 export async function graphqlRoutes(app: FastifyInstance): Promise<void> {
-  app.post('/graphql', async (request, reply) => {
-    const { query, variables } = request.body as GraphQLRequest;
-    const result = await executeGraphQL(app, query, variables ?? {});
-    return reply.send({ data: result, errors: result._errors ?? [] });
-  });
+  const schema = createSchema({
+    typeDefs,
+    resolvers: {
+      Query: {
+        projects: async () => {
+          return app.db.select().from(projects).orderBy(desc(projects.updatedAt)).limit(50);
+        },
 
-  // GET for GraphiQL-style introspection
-  app.get('/graphql', async (_request, reply) => {
-    return reply.send({
-      message: 'Genesis-1 GraphQL endpoint',
-      description: 'POST your GraphQL queries here. Introspection available via __schema query.',
-      sampleQuery: '{ projects { id name slug } }',
-    });
-  });
-}
+        project: async (_root: unknown, args: { id: string }) => {
+          const result = await app.db
+            .select()
+            .from(projects)
+            .where(eq(projects.id, args.id))
+            .limit(1);
+          return result[0] ?? null;
+        },
 
-interface GraphQLResult {
-  [key: string]: unknown;
-  _errors?: string[];
-}
+        graphNodes: async (_root: unknown, args: { projectId: string }) => {
+          const { data: nodes } = await app.graphEngine.listNodes(args.projectId);
+          return nodes;
+        },
 
-async function executeGraphQL(app: FastifyInstance, query: string, variables: Record<string, unknown>): Promise<GraphQLResult> {
-  // Parse the query string to determine what's being requested
-  const trimmed = query.trim();
+        graphEdges: async (_root: unknown, args: { projectId: string }) => {
+          return app.graphEngine.listEdges(args.projectId);
+        },
 
-  // __schema (introspection)
-  if (trimmed.includes('__schema') || trimmed.includes('__type')) {
-    return {
-      __schema: {
-        queryType: { name: 'Query' },
-        mutationType: { name: 'Mutation' },
-        types: [
-          { name: 'Project', fields: [
-            { name: 'id', type: { name: 'ID' } },
-            { name: 'name', type: { name: 'String' } },
-            { name: 'slug', type: { name: 'String' } },
-            { name: 'description', type: { name: 'String' } },
-            { name: 'ownerId', type: { name: 'ID' } },
-          ]},
-          { name: 'GraphNode', fields: [
-            { name: 'id', type: { name: 'ID' } },
-            { name: 'type', type: { name: 'String' } },
-            { name: 'name', type: { name: 'String' } },
-            { name: 'description', type: { name: 'String' } },
-            { name: 'state', type: { name: 'String' } },
-            { name: 'version', type: { name: 'Int' } },
-            { name: 'position', type: { name: 'Position' } },
-            { name: 'inputs', type: { name: '[Port]' } },
-            { name: 'outputs', type: { name: '[Port]' } },
-          ]},
-          { name: 'GraphEdge', fields: [
-            { name: 'id', type: { name: 'ID' } },
-            { name: 'source', type: { name: 'ID' } },
-            { name: 'target', type: { name: 'ID' } },
-            { name: 'type', type: { name: 'String' } },
-            { name: 'label', type: { name: 'String' } },
-            { name: 'realtime', type: { name: 'Boolean' } },
-            { name: 'bidirectional', type: { name: 'Boolean' } },
-          ]},
-          { name: 'AgentDefinition', fields: [
-            { name: 'id', type: { name: 'ID' } },
-            { name: 'name', type: { name: 'String' } },
-            { name: 'status', type: { name: 'String' } },
-            { name: 'version', type: { name: 'Int' } },
-          ]},
-          { name: 'Execution', fields: [
-            { name: 'id', type: { name: 'ID' } },
-            { name: 'agentId', type: { name: 'ID' } },
-            { name: 'status', type: { name: 'String' } },
-            { name: 'totalDurationMs', type: { name: 'Int' } },
-            { name: 'totalTokens', type: { name: 'Int' } },
-          ]},
-          { name: 'RuleViolation', fields: [
-            { name: 'id', type: { name: 'ID' } },
-            { name: 'ruleId', type: { name: 'ID' } },
-            { name: 'severity', type: { name: 'String' } },
-            { name: 'message', type: { name: 'String' } },
-          ]},
-          { name: 'SimulationRun', fields: [
-            { name: 'id', type: { name: 'ID' } },
-            { name: 'status', type: { name: 'String' } },
-            { name: 'totalSteps', type: { name: 'Int' } },
-            { name: 'clockEnd', type: { name: 'Float' } },
-          ]},
-        ],
+        agents: async (_root: unknown, args: { projectId?: string }) => {
+          if (args.projectId) {
+            return app.db
+              .select()
+              .from(agentDefinitions)
+              .where(eq(agentDefinitions.projectId, args.projectId))
+              .orderBy(desc(agentDefinitions.updatedAt));
+          }
+          return app.db
+            .select()
+            .from(agentDefinitions)
+            .orderBy(desc(agentDefinitions.updatedAt))
+            .limit(20);
+        },
+
+        execution: async (_root: unknown, args: { id: string }) => {
+          return app.agentRuntime.getExecution(args.id);
+        },
+
+        executionSteps: async (_root: unknown, args: { executionId: string }) => {
+          return app.agentRuntime.getExecutionSteps?.(args.executionId) ?? [];
+        },
+
+        violations: async (_root: unknown, args: { projectId: string }) => {
+          return app.ruleEngine.getViolations(args.projectId);
+        },
+
+        simulationRuns: async (_root: unknown, args: { projectId: string }) => {
+          return app.db
+            .select()
+            .from(simulationRuns)
+            .where(eq(simulationRuns.projectId, args.projectId))
+            .orderBy(desc(simulationRuns.createdAt))
+            .limit(20);
+        },
+
+        topologyValidation: async (_root: unknown, args: { projectId: string }) => {
+          return app.graphEngine.validateTopology(args.projectId);
+        },
       },
-    };
-  }
 
-  // projects query
-  if (trimmed.includes('projects')) {
-    const result = await app.db
-      .select()
-      .from(projects)
-      .orderBy(desc(projects.updatedAt))
-      .limit(20);
-    return { projects: result };
-  }
+      Mutation: {
+        createProject: async (_root: unknown, args: { input: { name: string; description?: string } }, ctx: { userId: string | null }) => {
+          const userId = requireAuth(ctx);
+          const slug = args.input.name.toLowerCase().replace(/\s+/g, '-');
+          const [row] = await app.db
+            .insert(projects)
+            .values({
+              name: args.input.name,
+              slug,
+              description: args.input.description ?? null,
+              ownerId: userId,
+            } as never)
+            .returning();
+          return row;
+        },
 
-  // project(id:) query
-  if (trimmed.includes('project(')) {
-    const idMatch = trimmed.match(/project\(\s*id:\s*"([^"]+)"/);
-    if (idMatch) {
-      const result = await app.db
-        .select()
-        .from(projects)
-        .where(eq(projects.id, idMatch[1]))
-        .limit(1);
-      return { project: result[0] ?? null };
-    }
-  }
+        updateProject: async (_root: unknown, args: { id: string; input: { name?: string; description?: string } }, ctx: { userId: string | null }) => {
+          requireAuth(ctx);
+          const [row] = await app.db
+            .update(projects)
+            .set({ ...args.input, updatedAt: new Date() } as never)
+            .where(eq(projects.id, args.id))
+            .returning();
+          return row ?? null;
+        },
 
-  // graphNodes query
-  if (trimmed.includes('graphNodes')) {
-    const projectId = variables.projectId as string;
-    if (projectId) {
-      const { data: nodes } = await app.graphEngine.listNodes(projectId);
-      return { graphNodes: nodes };
-    }
-    return { graphNodes: [] };
-  }
+        deleteProject: async (_root: unknown, args: { id: string }, ctx: { userId: string | null }) => {
+          requireAuth(ctx);
+          await app.db.delete(projects).where(eq(projects.id, args.id));
+          return true;
+        },
 
-  // graphEdges query
-  if (trimmed.includes('graphEdges')) {
-    const projectId = variables.projectId as string;
-    if (projectId) {
-      const edgeList = await app.graphEngine.listEdges(projectId);
-      return { graphEdges: edgeList };
-    }
-    return { graphEdges: [] };
-  }
+        createNode: async (_root: unknown, args: { projectId: string; input: { type: string; name: string; description?: string; positionX?: number; positionY?: number; properties?: Record<string, unknown> } }, ctx: { userId: string | null }) => {
+          const userId = requireAuth(ctx);
+          return app.graphEngine.createNode(args.projectId, {
+            type: args.input.type,
+            name: args.input.name,
+            description: args.input.description ?? undefined,
+            position: { x: args.input.positionX ?? 0, y: args.input.positionY ?? 0 },
+            metadata: args.input.properties ?? {},
+            inputs: [],
+            outputs: [],
+          }, userId);
+        },
 
-  // agents query
-  if (trimmed.includes('agents')) {
-    const projectId = variables.projectId as string;
-    if (projectId) {
-      const result = await app.db
-        .select()
-        .from(agentDefinitions)
-        .where(eq(agentDefinitions.projectId, projectId))
-        .orderBy(desc(agentDefinitions.updatedAt));
-      return { agents: result };
-    }
-    const result = await app.db
-      .select()
-      .from(agentDefinitions)
-      .orderBy(desc(agentDefinitions.updatedAt))
-      .limit(20);
-    return { agents: result };
-  }
+        deleteNode: async (_root: unknown, args: { projectId: string; nodeId: string }, ctx: { userId: string | null }) => {
+          const userId = requireAuth(ctx);
+          await app.graphEngine.deleteNode(args.nodeId, userId);
+          return true;
+        },
 
-  // execution(id:) query
-  if (trimmed.includes('execution(')) {
-    const idMatch = trimmed.match(/execution\(\s*id:\s*"([^"]+)"/);
-    if (idMatch) {
-      const exec = await app.agentRuntime.getExecution(idMatch[1]);
-      return { execution: exec };
-    }
-  }
+        createEdge: async (_root: unknown, args: { projectId: string; input: { source: string; target: string; type: string; label?: string; weight?: number } }, ctx: { userId: string | null }) => {
+          const userId = requireAuth(ctx);
+          return app.graphEngine.createEdge(args.projectId, {
+            source: args.input.source,
+            target: args.input.target,
+            type: args.input.type,
+            label: args.input.label ?? undefined,
+            weight: args.input.weight ?? 1,
+            metadata: {},
+          }, userId);
+        },
 
-  // violations query
-  if (trimmed.includes('violations')) {
-    const projectId = variables.projectId as string;
-    if (projectId) {
-      const v = await app.ruleEngine.getViolations(projectId);
-      return { violations: v };
-    }
-    return { violations: [] };
-  }
+        deleteEdge: async (_root: unknown, args: { projectId: string; edgeId: string }, ctx: { userId: string | null }) => {
+          const userId = requireAuth(ctx);
+          await app.graphEngine.deleteEdge(args.edgeId, userId);
+          return true;
+        },
 
-  // simulationRuns query
-  if (trimmed.includes('simulationRuns')) {
-    const projectId = variables.projectId as string;
-    if (projectId) {
-      const result = await app.db
-        .select()
-        .from(simulationRuns)
-        .where(eq(simulationRuns.projectId, projectId))
-        .orderBy(desc(simulationRuns.createdAt))
-        .limit(20);
-      return { simulationRuns: result };
-    }
-    return { simulationRuns: [] };
-  }
+        executeAgent: async (_root: unknown, args: { projectId: string; agentId: string; input?: Record<string, unknown> }, ctx: { userId: string | null }) => {
+          const userId = requireAuth(ctx);
+          return app.agentRuntime.startExecution(args.agentId, args.projectId, userId, args.input ?? {});
+        },
 
-  // topologyValidation query
-  if (trimmed.includes('topologyValidation')) {
-    const projectId = variables.projectId as string;
-    if (projectId) {
-      const validation = await app.graphEngine.validateTopology(projectId);
-      return { topologyValidation: validation };
-    }
-    return { topologyValidation: null };
-  }
+        runValidation: async (_root: unknown, args: { projectId: string }, ctx: { userId: string | null }) => {
+          requireAuth(ctx);
+          return app.graphEngine.validateTopology(args.projectId);
+        },
+      },
+    },
+  });
 
-  // Fallback
-  return { _errors: [`Unknown query pattern. Supported: projects, project, graphNodes, graphEdges, agents, execution, violations, simulationRuns, topologyValidation`] };
+  const yoga = createYoga({
+    schema,
+    graphqlEndpoint: '/api/v1/graphql',
+    context: async ({ request: webReq }: { request: Request }) => {
+      // Extract auth info from headers into context for resolvers
+      const authHeader = webReq.headers.get('authorization');
+      const apiKey = webReq.headers.get('x-api-key');
+      let userId: string | null = null;
+
+      if (apiKey) {
+        try {
+          const result = await app.apiKeyService.verifyApiKey(apiKey);
+          if (result) userId = result.userId;
+        } catch { /* not authenticated */ }
+      } else if (authHeader?.startsWith('Bearer ')) {
+        try {
+          const payload = app.authService.verifyAccessToken(authHeader.slice(7));
+          userId = payload.sub;
+        } catch { /* not authenticated */ }
+      }
+
+      return { userId };
+    },
+    graphiql: {
+      defaultQuery: `# Genesis-1 GraphQL API
+# Explore projects, graph topology, agents, simulations, and more.
+
+{
+  projects {
+    id
+    name
+    slug
+  }
+}
+`,
+    },
+  });
+
+  // Mount yoga as a Fastify route handler
+  app.route({
+    method: ['GET', 'POST', 'OPTIONS'],
+    url: '/graphql',
+    handler: async (request, reply) => {
+      const response = await yoga.handleNodeRequestAndResponse(request, reply);
+      return response;
+    },
+  });
 }
 
-
+/** Require auth for mutations. Throws GraphQL error if no authenticated user in context. */
+function requireAuth(ctx: { userId: string | null }): string {
+  if (!ctx.userId) {
+    throw new Error('Authentication required for mutations. Provide an Authorization: Bearer <token> or X-API-Key header.');
+  }
+  return ctx.userId;
+}

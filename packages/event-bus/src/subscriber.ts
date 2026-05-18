@@ -4,6 +4,7 @@ import type { EventHandler, Subscription } from './types';
 
 export class EventSubscriber {
   private readonly subscriptions = new Map<string, Set<EventHandler>>();
+  private listenerRegistered = false;
 
   constructor(private readonly redis: Redis) {}
 
@@ -16,12 +17,13 @@ export class EventSubscriber {
     }
     handlers.add(handler);
 
-    // Set up message listener once
-    this.redis.on('message', (ch, message) => {
-      if (ch === channel) {
+    // Register the message listener once globally
+    if (!this.listenerRegistered) {
+      this.listenerRegistered = true;
+      this.redis.on('message', (ch, message) => {
         try {
           const event = JSON.parse(message) as EventEnvelope;
-          const subs = this.subscriptions.get(channel);
+          const subs = this.subscriptions.get(ch);
           if (subs) {
             for (const h of subs) {
               void h(event);
@@ -30,8 +32,8 @@ export class EventSubscriber {
         } catch {
           // Skip malformed messages
         }
-      }
-    });
+      });
+    }
 
     return {
       channel,

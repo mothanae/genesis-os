@@ -89,11 +89,13 @@ export async function buildApp() {
   const eventPublisher = new EventPublisher(pubRedis);
   const eventSubscriber = new EventSubscriber(subRedis);
 
-  // Core engines
+  // Core engines (constructed in dependency order)
   const graphEngine = new GraphEngine({ db, eventBus: eventPublisher });
   const ruleEngine = new RuleEngine({ db, eventBus: eventPublisher });
-  const agentRuntime = new AgentRuntime({ db, eventBus: eventPublisher });
   const simulationEngine = new SimulationEngine({ db, eventBus: eventPublisher });
+
+  // Deployment engine (created before orchestrator — orchestrator agents use it)
+  const deploymentEngine = new DeploymentEngine(graphEngine, eventPublisher);
 
   // LLM provider — selects best available: Anthropic > OpenAI > Ollama
   const llmProvider: LLMProvider | undefined = createLLMProvider({
@@ -104,16 +106,22 @@ export async function buildApp() {
     ollama: { baseUrl: process.env.OLLAMA_BASE_URL ?? 'http://localhost:11434', model: process.env.OLLAMA_MODEL ?? 'llama3.2' },
   }) ?? undefined;
 
-  // Orchestrator & higher-order engines
+  // Orchestrator (must be created before AgentRuntime so runtime can dispatch steps)
   const orchestrator = new AgentOrchestrator({
     db,
     eventBus: eventPublisher,
     graphEngine,
     ruleEngine,
+    simulationEngine,
+    deploymentEngine,
     llmProvider,
   });
+
+  // AgentRuntime wired with orchestrator for step execution dispatch
+  const agentRuntime = new AgentRuntime({ db, eventBus: eventPublisher, orchestrator });
+
+  // Higher-order engines
   const generationEngine = new GenerationEngine(graphEngine, eventPublisher);
-  const deploymentEngine = new DeploymentEngine(graphEngine, eventPublisher);
   const evolutionEngine = new EvolutionEngine(graphEngine, eventPublisher, db);
 
   // Decorators for route handlers
@@ -130,10 +138,26 @@ export async function buildApp() {
   app.decorate('deploymentEngine', deploymentEngine);
   app.decorate('evolutionEngine', evolutionEngine);
 
-  // Auth service (decorated directly on root to avoid plugin encapsulation)
+  // Auth services (decorated directly on root to avoid plugin encapsulation)
   const { AuthService } = await import('./services/auth.service');
+  const { ApiKeyService } = await import('./services/api-key.service');
   app.decorate('authService', new AuthService(db));
+  app.decorate('apiKeyService', new ApiKeyService(db));
   app.decorateRequest('user', null);
+
+  // Response time + correlation ID headers on every response
+  const startTimes = new WeakMap<object, number>();
+
+  app.addHook('onRequest', async (request) => {
+    startTimes.set(request, Date.now());
+  });
+
+  app.addHook('onSend', async (request, reply) => {
+    const start = startTimes.get(request) ?? Date.now();
+    const duration = Date.now() - start;
+    void reply.header('X-Response-Time', `${duration}ms`);
+    void reply.header('X-Request-Id', (request.headers['x-request-id'] as string) ?? '');
+  });
 
   await registerRoutes(app);
 
