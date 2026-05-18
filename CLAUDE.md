@@ -13,10 +13,13 @@ Genesis OS — A visual AI-powered software creation operating system. The graph
 | `pnpm dev` | Start all apps in dev mode |
 | `pnpm --filter @genesis-1/api dev` | Start just the API (Fastify, port 3001, requires Postgres+Redis) |
 | `pnpm --filter @genesis-1/next dev` | Start just the frontend (Next.js, port 3000) |
+| `NEXT_PUBLIC_MOCK=true pnpm --filter @genesis-1/next dev` | Frontend with MSW mock data (no backend needed) |
 | `pnpm typecheck` | TypeScript check across all packages |
 | `pnpm test` | Run all Vitest tests (requires env vars below) |
+| `pnpm --filter @genesis-1/next test:e2e` | Run Playwright E2E tests (chromium, auto-starts dev server) |
+| `pnpm --filter @genesis-1/database db:seed` | Seed demo data (user, project, graph, rules, agent) |
+| `pnpm format:check` | Prettier format check (CI uses this) |
 | `npx vitest run path/to/test.test.ts` | Run a single test file |
-| `npx vitest run` | Run all tests from repo root (finds all `*.test.ts`) |
 | `pnpm clean` | Remove all dist/.next/coverage |
 
 **Running tests requires these env vars** (the `@genesis-1/config` package validates env at import time):
@@ -48,7 +51,7 @@ $env:NODE_ENV="development"
 
 - **Graph-first, not prompt-first** — Everything originates from nodes, edges, topology, relationships
 - **Event-driven** — All mutations publish events via Redis pub/sub
-- **Modular monorepo** — 11 packages + 2 apps (api, next), each independently testable
+- **Modular monorepo** — 12 packages + 2 apps (api, next), each independently testable
 - **The execution loop**: `USER ACTION → GRAPH MUTATION → INTENT EXTRACTION → RULE VALIDATION → TASK PLANNING → AGENT SELECTION → EXECUTION → VALIDATION → SIMULATION → UI UPDATE`
 
 ## Package Dependency Graph
@@ -63,8 +66,8 @@ packages/database → shared, config
 packages/event-bus → shared, ioredis
 packages/graph-engine → shared, database, event-bus
 packages/rule-engine → shared, database, event-bus
-packages/agent-runtime → shared, database, event-bus, graph-engine, rule-engine
-packages/simulation-engine → shared, database, event-bus, graph-engine, rule-engine
+packages/agent-runtime → shared, database, event-bus, graph-engine, rule-engine, simulation-engine, deployment-engine
+packages/simulation-engine → shared, database, event-bus, graph-engine
 packages/generation-engine → shared, database, event-bus, graph-engine
 packages/deployment-engine → shared, database, event-bus, graph-engine
 packages/evolution-engine → shared, database, event-bus, graph-engine, rule-engine
@@ -96,7 +99,7 @@ All routes under `apps/api/src/routes/`. Registered in `apps/api/src/routes/inde
 | Module | Prefix | Key Endpoints | Auth Required |
 |--------|--------|--------------|---------------|
 | Health | `/health` | `GET /health` | No |
-| Auth | `/api/v1/auth` | `POST /register`, `POST /login`, `GET /me`, `POST /refresh`, `POST /logout` | /me only |
+| Auth | `/api/v1/auth` | `POST /register`, `POST /login`, `GET /me`, `POST /refresh`, `POST /logout`, `GET /api-keys`, `POST /api-keys`, `DELETE /api-keys/:keyId` | /me + /api-keys |
 | Projects | `/api/v1/projects` | CRUD + members | Yes (all) |
 | Graph | `/api/v1/projects/:id/graph` | Nodes, edges, search, snapshots, cycles, impact, diagrams | No* |
 | Agents | `/api/v1/projects/:id/agents` | CRUD, execute, pause/resume/cancel, execution steps | No* |
@@ -105,7 +108,7 @@ All routes under `apps/api/src/routes/`. Registered in `apps/api/src/routes/inde
 | Generation | `/api/v1/projects/:id` | `POST /generate`, `POST /execute-loop` | No* |
 | Deployment | `/api/v1/projects/:id/deploy` | `POST /generate`, `POST /simulate`, `POST /rollback` | No* |
 | Evolution | `/api/v1/projects/:id` | `POST /evolve`, `GET /insights`, `GET /templates` | No* |
-| GraphQL | `/api/v1/graphql` | `POST /graphql` (projects, graphNodes, graphEdges, agents, executions, violations, topologyValidation) | No |
+| GraphQL | `/api/v1/graphql` | `POST /graphql` — graphql-yoga with GraphiQL playground, 10 queries + 9 mutations (mutations require auth via JWT or X-API-Key header) | Queries: No, Mutations: Yes |
 | WebSocket | `/ws` | Real-time canvas sync, graph mutations, cursor awareness (token+projectId via query params) | Token |
 
 *Starred routes: authentication is available but not enforced by default. Add `preHandler: [authenticate]` to enforce.
@@ -130,10 +133,12 @@ The API app (`apps/api/src/app.ts`) builds the Fastify server with strict orderi
 
 ### API Side
 - `apps/api/src/services/auth.service.ts` — `AuthService` class: bcrypt (12 rounds), JWT HS256, register/login/refresh/me/logout
-- `apps/api/src/plugins/auth.ts` — Fastify hooks: `authenticate`, `requireAdmin`, `requireStaff`, `optionalAuth`
+- `apps/api/src/services/api-key.service.ts` — `ApiKeyService` class: SHA-256 key hashing, `genesis_` prefix, 10-key limit per user, create/list/revoke/verify
+- `apps/api/src/plugins/auth.ts` — Fastify hooks: `authenticate` (accepts JWT Bearer OR X-API-Key header), `authenticateApiKey` (standalone), `requireAdmin`, `requireStaff`, `optionalAuth`
 - JWT payload shape: `{ sub: userId, email, role, iat, exp }`
 - Session management via `auth.sessions` table (refresh tokens, expiry, revocation)
-- Domain errors: `EmailAlreadyExistsError` (409), `InvalidCredentialsError` (401), `UserBlockedError` (403), `UserNotFoundError` (404)
+- API keys stored in `auth.api_keys` table (key hashed with SHA-256, raw key shown only once at creation)
+- Domain errors: `EmailAlreadyExistsError` (409), `InvalidCredentialsError` (401), `UserBlockedError` (403), `UserNotFoundError` (404), `ApiKeyLimitError` (400), `ApiKeyNotFoundError` (404)
 
 ### Frontend Side
 - `apps/next/src/stores/auth.store.ts` — Zustand store with `login`, `register`, `logout`, `refresh`, `restoreSession`
@@ -206,13 +211,15 @@ The full pipeline at `POST /api/v1/projects/:id/execute-loop`:
 - **React Flow** for the graph canvas with custom node types
 - **Zustand** for canvas state (`canvas.store.ts` — nodes, edges, undo/redo stack)
 - **Drag-and-drop** from `NodePalette` onto the canvas
-- **WebSocket** for real-time multi-user sync — `graph_mutation` events broadcast to project room
+- **WebSocket** for real-time multi-user sync — `graph_mutation` events broadcast to project room. Cross-instance broadcast via Redis `genesis-1.ws.broadcast:*` channels with instance dedup (`INSTANCE_ID`). Per-user connection limit (max 5, Redis INCR/DECR with 60s TTL, fail-open).
 - **NodeInspector** panel for editing selected node properties
 - **Monaco Editor** for viewing generated code
+- **Playwright** for E2E tests (chromium, 10 tests across smoke/auth/dashboard specs, `test:e2e` script)
 
 ## Known Issues
 
-- `drizzle-kit push` fails: version mismatch between `drizzle-orm` (0.33) and `drizzle-kit` (0.27). Create tables via SQL or update both to compatible versions.
+- `drizzle-kit push/generate` fails: version mismatch — `drizzle-orm` (0.33) is incompatible with available `drizzle-kit` versions. Currently on 0.28.1. Use `/health/migrate` endpoint or raw SQL for schema changes. Both packages need a coordinated upgrade.
 - `GraphEngine.detectCycles()` uses raw `db.execute()` which may fail depending on drizzle-orm version. The cycle detection recursive CTE is fragile.
 - Two PostgreSQL instances (17 and 18) may conflict on port 5432. Use `Get-NetTCPConnection -LocalPort 5432` to check which version owns the port.
 - The `tsx watch` restart can leave the old process holding the port (EADDRINUSE). Kill old node processes before restarting if needed.
+- `apps/api/src/plugins/auth.ts:authPlugin` is dead code — `app.ts` already decorates `authService` and `apiKeyService` directly. The plugin function is exported but never registered.
