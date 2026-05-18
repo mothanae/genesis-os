@@ -39,5 +39,11 @@ staging-error.log
 # Turborepo
 .turbo/
 
+# Generated code
+apps/api/generated/
+
+# Design docs
+blueprint.md
+
 # Misc
 *.tgz
